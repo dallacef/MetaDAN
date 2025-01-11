@@ -40,7 +40,7 @@ class DAN(nn.Module):
                  embed_size=8,
                  num_mmd_layers=2,
                  bandwidth_step_multiplier=2.0,
-                 bandwidth_alpha=0.1):
+                 bandwidth_alpha=0.05):
         """
 
         :param dim: input dimension size (number of features)
@@ -100,7 +100,7 @@ class DAN(nn.Module):
             )
             for i in range(len(new_bandwidths))
         ])
-        self.bandwidths = (1 - self.bandwidth_alpha) * self.bandwidth + self.bandwidth_alpha * new_bandwidths
+        self.bandwidths = (1 - self.bandwidth_alpha) * self.bandwidths + self.bandwidth_alpha * new_bandwidths
 
     def forward(self, data):
         """
