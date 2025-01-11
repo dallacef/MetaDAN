@@ -91,6 +91,6 @@ class MKMMDLoss(nn.Module):
             cnt2 += len(t_t) - i - 1
         if cnt2 != 0:
             ret += temp2 / cnt2
-
         ret -= 2*s_t.mean()
         return ret
+

@@ -554,18 +554,18 @@ def test_stats(best_config,
 
 
 def run_raytune(train_data, test_data, val_data,
-                num_samples=50, max_num_epochs=50,
+                num_samples=100, max_num_epochs=100,
                 results_folder='ray_results', split_type='loso'):
     if split_type == 'kfold':
         hyperparams = {
             'batch_size': tune.choice([2 ** i for i in range(3, 5)]),
-            'lambda': tune.choice([0.5, 1, 2]),
+            'target_lambda': tune.choice([0.25, 0.5, 1, 2]),
             'learning_rate': tune.loguniform(1e-4, 1e-1),
             "weight_decay": tune.choice([0.01, 0.05, 0.1]),
-            'num_kernels': tune.choice([3, 5]),
+            'num_kernels': tune.choice([1, 2, 3]),
             'dropout_rate': tune.choice([0.1, 0.3]),
             'num_hidden_layers': tune.choice([2, 3]),
-            'embed_size': tune.choice([16, 32, 64]),
+            'embed_size': tune.choice([4, 8, 16]),
             'num_mmd_layers': tune.choice([2, 3]),
             'out_dim': 1
         }
@@ -573,40 +573,28 @@ def run_raytune(train_data, test_data, val_data,
     elif split_type == 'loso':
         hyperparams = {
             'batch_size': tune.choice([2 ** i for i in range(4, 6)]),
-            'source_lambda': tune.choice([0.5, 1, 2]),
-            'target_lambda': tune.choice([0.5, 1, 2]),
+            'source_lambda': tune.choice([0.25, 0.5, 1]),
+            'target_lambda': tune.choice([0.25, 0.5, 1]),
             'learning_rate': tune.loguniform(1e-3, 1e-1),
             "weight_decay": tune.choice([0.01, 0.05, 0.1]),
-            'num_kernels': tune.choice([3, 5]),
+            'num_kernels': tune.choice([3, 4, 5]),
             'dropout_rate': tune.choice([0.1, 0.3]),
             'num_hidden_layers': tune.choice([2, 3, 4]),
-            'embed_size': tune.choice([16, 32, 64]),
+            'embed_size': tune.choice([8, 16, 32]),
             'num_mmd_layers': tune.choice([2, 3]),
             'out_dim': 1
         }
+
     elif split_type == 'toso':
         hyperparams = {
             'batch_size': tune.choice([2 ** i for i in range(3, 5)]),
-            'target_lambda': tune.choice([0.5, 1, 2]),
+            'target_lambda': tune.choice([0.25, 0.5, 1]),
             'learning_rate': tune.loguniform(1e-4, 1e-1),
             "weight_decay": tune.choice([0.01, 0.05, 0.1]),
-            'num_kernels': tune.choice([3, 5]),
+            'num_kernels': tune.choice([3, 4, 5]),
             'dropout_rate': tune.choice([0.1, 0.3]),
             'num_hidden_layers': tune.choice([2, 3, 4]),
-            'embed_size': tune.choice([16, 32, 64]),
-            'num_mmd_layers': tune.choice([2, 3]),
-            'out_dim': 1
-        }
-    elif split_type == 'kfold':
-        hyperparams = {
-            'batch_size': tune.choice([2 ** i for i in range(3, 5)]),
-            'target_lambda': tune.choice([0.5, 1, 2]),
-            'learning_rate': tune.loguniform(1e-4, 1e-1),
-            "weight_decay": tune.choice([0.01, 0.05, 0.1]),
-            'num_kernels': tune.choice([3, 5]),
-            'dropout_rate': tune.choice([0.1, 0.3]),
-            'num_hidden_layers': tune.choice([2, 3, 4]),
-            'embed_size': tune.choice([16, 32, 64]),
+            'embed_size': tune.choice([8, 16, 32]),
             'num_mmd_layers': tune.choice([2, 3]),
             'out_dim': 1
         }
@@ -753,7 +741,7 @@ if __name__ == '__main__':
                 tune_res = run_raytune(train_set,
                                        test_set,
                                        val_set,
-                                       num_samples=100, max_num_epochs=75,
+                                       num_samples=100, max_num_epochs=100,
                                        results_folder=temp_folder, split_type=split_type)
                 res.append({
                     'test_dataset': dset,
@@ -937,7 +925,7 @@ if __name__ == '__main__':
                     tune_res = run_raytune(train_set,
                                            test_set,
                                            val_set,
-                                           num_samples=100, max_num_epochs=50,
+                                           num_samples=100, max_num_epochs=100,
                                            results_folder=temp_folder, split_type=split_type)
                     res.append({
                         'train_dataset': dset,
@@ -990,138 +978,137 @@ if __name__ == '__main__':
                     train_set, test_set, val_set = load_data_for_training(
                         data, meta, train_idx, test_idx, val_idx=val_idx)
                     #####################################################
-                    train_data = torch.stack([x[0] for x in train_set])
-                    train_labels = torch.stack([x[1] for x in train_set])
-                    val_data = torch.stack([x[0] for x in val_set])
-                    val_labels = torch.stack([x[1] for x in val_set])
-                    test_data = torch.stack([x[0] for x in test_set])
-                    test_labels = torch.stack([x[1] for x in test_set])
-                    train_classification_idx = torch.nonzero(train_labels <= 1, as_tuple=True)[0]
-                    train_background_idx = torch.nonzero(train_labels > 1, as_tuple=True)[0]
-                    val_classification_idx = torch.nonzero(val_labels <= 1, as_tuple=True)[0]
-                    config = {
-                        'batch_size': 16,
-                        'target_lambda': 1,
-                        'learning_rate': 0.001,
-                        "weight_decay": 0.01,
-                        'num_kernels': 1,
-                        'dropout_rate': 0.1,
-                        'num_hidden_layers': 2,
-                        'embed_size': 6,
-                        'num_mmd_layers': 2,
-                        'out_dim': 1
-                    }
-                    net = networks.DAN(
-                        dim=train_data.shape[-1],
-                        dropout_rate=config['dropout_rate'],
-                        num_kernels=config['num_kernels'],
-                        out_dim=1,
-                        num_hidden_layers=config['num_hidden_layers'],
-                        embed_size=config['embed_size'],
-                        num_mmd_layers=config['num_mmd_layers'])
-
-                    #  set initial model bandwidths based on subset of training data
-                    net.set_bandwidths(get_kfold_bandwidth_estimate(net, train_data))
-                    mkmmd_loss = losses.MKMMDLoss(num_kernels=config['num_kernels'])
-                    class_loss = torch.nn.BCEWithLogitsLoss()
-                    optimizer = torch.optim.Adam(net.parameters(), lr=config['learning_rate'],
-                                                 weight_decay=config['weight_decay'])
-
-                    start_epoch = 0
-
-                    trainloader_label = torch.utils.data.DataLoader(
-                        [(train_data[i], train_labels[i]) for i in train_classification_idx],
-                        batch_size=int(config["batch_size"]), shuffle=True, drop_last=True
-                    )
-
-                    if len(train_background_idx) > 0:
-                        trainloader_background = torch.utils.data.DataLoader(
-                            [(train_data[i], train_labels[i]) for i in train_background_idx],
-                            batch_size=int(config["batch_size"]), shuffle=True, drop_last=True
-                        )
-
-                    for epoch in range(start_epoch, 100):
-                        if epoch % 5 == 0:
-                            test_buffer = test_data[torch.randperm(len(test_data))[:config["batch_size"] * 2]]
-                            net.update_bandwidths(get_toso_bandwidth_estimate(net, train_data))
-
-                        for i, d in enumerate(trainloader_label, 0):
-                            optimizer.zero_grad()
-                            source, source_labels = d
-                            [source_labeled_embeds, source_preds] = net(source)
-                            if len(train_background_idx) > 0:
-                                source_background, _ = next(iter(trainloader_background))
-                                [source_background_embeds, _] = net(source_background)
-                                source_embeds = [
-                                    torch.cat((t1, t2), dim=0) for t1, t2 in
-                                    zip(source_labeled_embeds, source_background_embeds)
-                                ]
-                            else:
-                                source_embeds = source_labeled_embeds
-
-                            [target_embeds, _] = net(test_buffer)
-
-                            source_label_loss = class_loss(source_preds.flatten(), source_labels)
-                            target_mkmmd_loss = torch.tensor(0.0)
-                            for k in range(config['num_mmd_layers']):
-                                target_mkmmd_loss += mkmmd_loss(source_embeds[k],
-                                                                target_embeds[k],
-                                                                net.bandwidths[k],
-                                                                torch.nn.functional.softmax(net.kernel_weights[k],
-                                                                                            dim=-1))
-
-                            _mkmmd_loss = target_mkmmd_loss * config['target_lambda']
-
-                            total_loss = source_label_loss + _mkmmd_loss
-                            total_loss.backward()
-                            optimizer.step()
-
-                        # Validation metrics
-                        if epoch % 5 == 0:
-                            with (torch.no_grad()):
-                                net.eval()
-                                [_, val_preds] = net(val_data[val_classification_idx])
-                                val_label_loss = class_loss(val_preds.flatten(), val_labels[val_classification_idx])
-                                net.train()
-                        if epoch == 99:
-                            thresholds = np.arange(0.0, 1.05, 0.05)
-                            [embeds, preds] = net(train_data)
-                            print('Training data')
-                            for threshold in thresholds:
-                                binary_preds = (
-                                        torch.sigmoid(preds.flatten()) >= threshold).long()  # Binarize predictions
-                                auc = roc_auc_score(train_labels.cpu().numpy(), binary_preds.cpu().numpy())
-                                f1 = f1_score(train_labels.cpu().numpy(), binary_preds.cpu().numpy())
-                                print(f"Threshold: {threshold:.2f}, AUC: {auc:.4f}, F1-score: {f1:.4f}")
-                            print('\n')
-
-                            [embeds, preds] = net(val_data)
-                            print('Val data')
-                            for threshold in thresholds:
-                                binary_preds = (
-                                        torch.sigmoid(preds.flatten()) >= threshold).long()  # Binarize predictions
-                                auc = roc_auc_score(val_labels.cpu().numpy(), binary_preds.cpu().numpy())
-                                f1 = f1_score(val_labels.cpu().numpy(), binary_preds.cpu().numpy())
-                                print(f"Threshold: {threshold:.2f}, AUC: {auc:.4f}, F1-score: {f1:.4f}")
-                            print('\n')
-
-                            [embeds, preds] = net(test_data)
-                            print('Testing data')
-                            for threshold in thresholds:
-                                binary_preds = (
-                                        torch.sigmoid(preds.flatten()) >= threshold).long()  # Binarize predictions
-                                auc = roc_auc_score(test_labels.cpu().numpy(), binary_preds.cpu().numpy())
-                                f1 = f1_score(test_labels.cpu().numpy(), binary_preds.cpu().numpy())
-
-                                print(f"Threshold: {threshold:.2f}, AUC: {auc:.4f}, F1-score: {f1:.4f}")
-                            print('\n')
-                            ...
+                    # train_data = torch.stack([x[0] for x in train_set])
+                    # train_labels = torch.stack([x[1] for x in train_set])
+                    # val_data = torch.stack([x[0] for x in val_set])
+                    # val_labels = torch.stack([x[1] for x in val_set])
+                    # test_data = torch.stack([x[0] for x in test_set])
+                    # test_labels = torch.stack([x[1] for x in test_set])
+                    # train_classification_idx = torch.nonzero(train_labels <= 1, as_tuple=True)[0]
+                    # train_background_idx = torch.nonzero(train_labels > 1, as_tuple=True)[0]
+                    # val_classification_idx = torch.nonzero(val_labels <= 1, as_tuple=True)[0]
+                    # config = {
+                    #     'batch_size': 16,
+                    #     'target_lambda': 1,
+                    #     'learning_rate': 0.001,
+                    #     "weight_decay": 0.01,
+                    #     'num_kernels': 3,
+                    #     'dropout_rate': 0.1,
+                    #     'num_hidden_layers': 2,
+                    #     'embed_size': 8,
+                    #     'num_mmd_layers': 2,
+                    #     'out_dim': 1
+                    # }
+                    # net = networks.DAN(
+                    #     dim=train_data.shape[-1],
+                    #     dropout_rate=config['dropout_rate'],
+                    #     num_kernels=config['num_kernels'],
+                    #     out_dim=1,
+                    #     num_hidden_layers=config['num_hidden_layers'],
+                    #     embed_size=config['embed_size'],
+                    #     num_mmd_layers=config['num_mmd_layers'])
+                    #
+                    # #  set initial model bandwidths based on subset of training data
+                    # net.set_bandwidths(get_kfold_bandwidth_estimate(net, train_data))
+                    # mkmmd_loss = losses.MKMMDLoss(num_kernels=config['num_kernels'])
+                    # class_loss = torch.nn.BCEWithLogitsLoss()
+                    # optimizer = torch.optim.Adam(net.parameters(), lr=config['learning_rate'],
+                    #                              weight_decay=config['weight_decay'])
+                    #
+                    # start_epoch = 0
+                    #
+                    # trainloader_label = torch.utils.data.DataLoader(
+                    #     [(train_data[i], train_labels[i]) for i in train_classification_idx],
+                    #     batch_size=int(config["batch_size"]), shuffle=True, drop_last=True
+                    # )
+                    #
+                    # if len(train_background_idx) > 0:
+                    #     trainloader_background = torch.utils.data.DataLoader(
+                    #         [(train_data[i], train_labels[i]) for i in train_background_idx],
+                    #         batch_size=int(config["batch_size"]), shuffle=True, drop_last=True
+                    #     )
+                    #
+                    # for epoch in range(start_epoch, 100):
+                    #     if epoch % 5 == 0:
+                    #         net.update_bandwidths(get_toso_bandwidth_estimate(net, train_data))
+                    #
+                    #     for i, d in enumerate(trainloader_label, 0):
+                    #         optimizer.zero_grad()
+                    #         source, source_labels = d
+                    #         [source_labeled_embeds, source_preds] = net(source)
+                    #         if len(train_background_idx) > 0:
+                    #             source_background, _ = next(iter(trainloader_background))
+                    #             [source_background_embeds, _] = net(source_background)
+                    #             source_embeds = [
+                    #                 torch.cat((t1, t2), dim=0) for t1, t2 in
+                    #                 zip(source_labeled_embeds, source_background_embeds)
+                    #             ]
+                    #         else:
+                    #             source_embeds = source_labeled_embeds
+                    #
+                    #         [target_embeds, _] = net(test_data)
+                    #
+                    #         source_label_loss = class_loss(source_preds.flatten(), source_labels)
+                    #         target_mkmmd_loss = torch.tensor(0.0)
+                    #         for k in range(config['num_mmd_layers']):
+                    #             target_mkmmd_loss += mkmmd_loss(source_embeds[k],
+                    #                                             target_embeds[k],
+                    #                                             net.bandwidths[k],
+                    #                                             torch.nn.functional.softmax(net.kernel_weights[k],
+                    #                                                                         dim=-1))
+                    #
+                    #         _mkmmd_loss = target_mkmmd_loss * config['target_lambda']
+                    #
+                    #         total_loss = source_label_loss + _mkmmd_loss
+                    #         total_loss.backward()
+                    #         optimizer.step()
+                    #
+                    #     # Validation metrics
+                    #     if epoch % 5 == 0:
+                    #         with (torch.no_grad()):
+                    #             net.eval()
+                    #             [_, val_preds] = net(val_data[val_classification_idx])
+                    #             val_label_loss = class_loss(val_preds.flatten(), val_labels[val_classification_idx])
+                    #             net.train()
+                    #     if epoch == 99:
+                    #         thresholds = np.arange(0.0, 1.05, 0.05)
+                    #         [embeds, preds] = net(train_data)
+                    #         print('Training data')
+                    #         for threshold in thresholds:
+                    #             binary_preds = (
+                    #                     torch.sigmoid(preds.flatten()) >= threshold).long()  # Binarize predictions
+                    #             auc = roc_auc_score(train_labels.cpu().numpy(), binary_preds.cpu().numpy())
+                    #             f1 = f1_score(train_labels.cpu().numpy(), binary_preds.cpu().numpy())
+                    #             print(f"Threshold: {threshold:.2f}, AUC: {auc:.4f}, F1-score: {f1:.4f}")
+                    #         print('\n')
+                    #
+                    #         [embeds, preds] = net(val_data)
+                    #         print('Val data')
+                    #         for threshold in thresholds:
+                    #             binary_preds = (
+                    #                     torch.sigmoid(preds.flatten()) >= threshold).long()  # Binarize predictions
+                    #             auc = roc_auc_score(val_labels.cpu().numpy(), binary_preds.cpu().numpy())
+                    #             f1 = f1_score(val_labels.cpu().numpy(), binary_preds.cpu().numpy())
+                    #             print(f"Threshold: {threshold:.2f}, AUC: {auc:.4f}, F1-score: {f1:.4f}")
+                    #         print('\n')
+                    #
+                    #         [embeds, preds] = net(test_data)
+                    #         print('Testing data')
+                    #         for threshold in thresholds:
+                    #             binary_preds = (
+                    #                     torch.sigmoid(preds.flatten()) >= threshold).long()  # Binarize predictions
+                    #             auc = roc_auc_score(test_labels.cpu().numpy(), binary_preds.cpu().numpy())
+                    #             f1 = f1_score(test_labels.cpu().numpy(), binary_preds.cpu().numpy())
+                    #
+                    #             print(f"Threshold: {threshold:.2f}, AUC: {auc:.4f}, F1-score: {f1:.4f}")
+                    #         print('\n')
+                    #         ...
 
                     #####################################################
                     tune_res = run_raytune(train_set,
                                            test_set,
                                            val_set,
-                                           num_samples=100, max_num_epochs=50,
+                                           num_samples=100, max_num_epochs=100,
                                            results_folder=temp_folder, split_type=split_type)
                     res.append({
                         'test_dataset': dataset,
@@ -1138,4 +1125,4 @@ if __name__ == '__main__':
                     })
                 shutil.rmtree(temp_folder, ignore_errors=True)
 
-            torch.save(res, '{}/{}_{}_{}_{}.pt'.format(output_folder, split_type, tax, disease, dataset))
+            torch.save(res, '{}/{}_{}_{}.pt'.format(output_folder, split_type, disease, dataset))
