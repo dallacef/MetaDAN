@@ -156,7 +156,7 @@ def train_loso_model(config,
 
             [target_embeds, _] = net(test_buffer)
 
-            source_label_loss = class_loss(source_preds, source_labels)
+            source_label_loss = class_loss(source_preds.flatten(), source_labels)
             source_mkmmd_loss = torch.tensor(0.0)
             for k in range(config['num_mmd_layers']):
                 temp = 0.0
@@ -220,3 +220,241 @@ def train_loso_model(config,
 
     print("Finished Training")
     return
+
+
+def test_stats(best_config,
+               best_model_state,
+               test_data_ref,
+               test_labels_ref):
+    test_data = ray.get(test_data_ref)
+    test_labels = ray.get(test_labels_ref)
+
+    test_classification_idx = torch.nonzero(test_labels <= 1, as_tuple=True)[0]
+
+    net = networks.DAN(
+        dim=test_data.shape[-1],
+        dropout_rate=best_config['dropout_rate'],
+        num_kernels=best_config['num_kernels'],
+        out_dim=1,
+        num_hidden_layers=best_config['num_hidden_layers'],
+        embed_size=best_config['embed_size'],
+        num_mmd_layers=best_config['num_mmd_layers'])
+
+    net.load_state_dict(best_model_state)
+    with torch.no_grad():
+        net.eval()
+        [embeds, preds] = net(test_data)
+        target_preds = preds[test_classification_idx].flatten()
+        net.train()
+
+    target_names = ['Healthy', 'Disease']
+    acc = accuracy_score([int(x) for x in test_labels[test_classification_idx]],
+                         [0 if nn.functional.sigmoid(target_preds.data[i]) < 0.5 else 1
+                          for i in range(len(target_preds))])
+    if (sum(test_labels[test_classification_idx] == 0) > 0) and (sum(test_labels[test_classification_idx] == 1) > 0):
+        f1 = f1_score(test_labels[test_classification_idx],
+                      [0 if nn.functional.sigmoid(target_preds.data[i]) < 0.5 else 1
+                       for i in range(len(target_preds))],
+                      average='macro')
+        auc = roc_auc_score(test_labels[test_classification_idx], target_preds)
+        confusion_mat = confusion_matrix(test_labels[test_classification_idx],
+                                         [0 if nn.functional.sigmoid(target_preds.data[i]) < 0.5 else 1
+                                          for i in range(len(target_preds))])
+        class_report = classification_report(test_labels[test_classification_idx],
+                                             [0 if nn.functional.sigmoid(target_preds.data[i]) < 0.5 else 1
+                                              for i in range(len(target_preds))], target_names=target_names)
+    else:
+        f1 = None
+        auc = None
+        confusion_mat = None
+        class_report = None
+    return (acc,
+            f1,
+            auc,
+            confusion_mat,
+            class_report,
+            best_model_state)
+
+
+def run_raytune(train_data, test_data, val_data,
+                num_samples=50, max_num_epochs=50,
+                results_folder='ray_results', split_type='loso'):
+    if split_type == 'kfold':
+        hyperparams = {
+            'batch_size': tune.choice([2 ** i for i in range(3, 5)]),
+            'lambda': tune.choice([0.5, 1, 2]),
+            'learning_rate': tune.loguniform(1e-4, 1e-1),
+            "weight_decay": tune.choice([0.01, 0.05, 0.1]),
+            'num_kernels': tune.choice([3, 5]),
+            'dropout_rate': tune.choice([0.1, 0.3]),
+            'num_hidden_layers': tune.choice([2, 3]),
+            'embed_size': tune.choice([16, 32, 64]),
+            'num_mmd_layers': tune.choice([2, 3]),
+            'out_dim': 1
+        }
+
+    elif split_type == 'loso':
+        hyperparams = {
+            'batch_size': tune.choice([2 ** i for i in range(3, 5)]),
+            'source_lambda': tune.choice([0.5, 1, 2]),
+            'target_lambda': tune.choice([0.5, 1, 2]),
+            'learning_rate': tune.loguniform(1e-4, 1e-1),
+            "weight_decay": tune.choice([0.01, 0.05, 0.1]),
+            'num_kernels': tune.choice([3, 5]),
+            'dropout_rate': tune.choice([0.1, 0.3]),
+            'num_hidden_layers': tune.choice([2, 3]),
+            'embed_size': tune.choice([16, 32, 64]),
+            'num_mmd_layers': tune.choice([2, 3]),
+            'out_dim': 1
+        }
+    elif split_type == 'toso':
+        hyperparams = {
+            'batch_size': tune.choice([2 ** i for i in range(3, 5)]),
+            'lambda': tune.choice([0.5, 1, 2]),
+            'learning_rate': tune.loguniform(1e-4, 1e-1),
+            "weight_decay": tune.choice([0.01, 0.05, 0.1]),
+            'num_kernels': tune.choice([3, 5]),
+            'dropout_rate': tune.choice([0.1, 0.3]),
+            'num_hidden_layers': tune.choice([2, 3]),
+            'embed_size': tune.choice([16, 32, 64]),
+            'num_mmd_layers': tune.choice([2, 3]),
+            'out_dim': 1
+        }
+
+    scheduler = ASHAScheduler(
+        metric="auc",
+        mode="max",
+        max_t=max_num_epochs,
+        grace_period=2,
+        reduction_factor=2,
+    )
+    train_data_ref = ray.put(torch.stack([x[0] for x in train_data]))
+    train_labels_ref = ray.put(torch.tensor([x[1] for x in train_data]))
+    val_data_ref = ray.put(torch.stack([x[0] for x in val_data]))
+    val_labels_ref = ray.put(torch.tensor([x[1] for x in val_data]))
+    test_data_ref = ray.put(torch.stack([x[0] for x in test_data]))
+    test_labels_ref = ray.put(torch.tensor([x[1] for x in test_data]))
+
+    if split_type == 'loso':
+        result = tune.run(
+            partial(train_loso_model,
+                    train_data_ref=train_data_ref, train_labels_ref=train_labels_ref,
+                    val_data_ref=val_data_ref, val_labels_ref=val_labels_ref, test_data_ref=test_data_ref,
+                    max_epochs=max_num_epochs
+                    ),
+            config=hyperparams,
+            storage_path=results_folder,
+            num_samples=num_samples,
+            scheduler=scheduler,
+            resources_per_trial={"cpu": 1},
+            verbose=0
+        )
+    # else:
+    #     result = tune.run(
+    #         partial(train_small_model,
+    #                 train_data_ref=train_data_ref, train_labels_ref=train_labels_ref,
+    #                 val_data_ref=val_data_ref, val_labels_ref=val_labels_ref, test_data_ref=test_data_ref,
+    #                 max_epochs=max_num_epochs
+    #                 ),
+    #         config=hyperparams,
+    #         storage_path=results_folder,
+    #         num_samples=num_samples,
+    #         scheduler=scheduler,
+    #         resources_per_trial={"cpu": 1},
+    #         verbose=0
+    #     )
+    best_trial = result.get_best_trial("auc", "max", "last")
+    print("Best trial config: {}".format(best_trial.config))
+    print(f"Best trial final validation auc: {best_trial.last_result['auc']}")
+    print(f"Best trial final validation f1: {best_trial.last_result['f1']}")
+    print(f"Best trial final validation label loss: {best_trial.last_result['label_loss']}")
+    print(f"Best trial final validation accuracy: {best_trial.last_result['accuracy']}")
+
+    best_checkpoint = result.get_best_checkpoint(trial=best_trial, metric="auc", mode="max")
+    with best_checkpoint.as_directory() as best_checkpoint_dir:
+        model_state, optimizer_state = torch.load(
+            os.path.join(best_checkpoint_dir, "checkpoint.pt"),
+            weights_only=False
+        )
+
+    test_res = test_stats(best_trial.config,
+                          model_state,
+                          test_data_ref=test_data_ref,
+                          test_labels_ref=test_labels_ref
+                          )
+    print("Best trial test set auc: {}".format(test_res[2]))
+    print("Best trial test set f1: {}".format(test_res[1]))
+    print("Best trial test set accuracy: {}".format(test_res[0]))
+    print("Best trial test set confusion matrix")
+    print(test_res[3])
+    print("Best trial test set classification stats")
+    print(test_res[4])
+    return test_res, best_trial
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='mkmmd model hyperparameter tuning')
+    parser.add_argument('--split_type', type=str, default='loso', help='kfold/loso/toso')
+    parser.add_argument('--disease', type=str, default='crc', help='crc')
+
+    args = parser.parse_args()
+    torch.set_default_dtype(torch.float32)
+
+    split_type = args.split_type
+    disease = args.disease
+
+    temp_folder = Path('./temp_results').resolve()
+    output_folder = Path('./dan_results').resolve()
+    if not os.path.isdir(output_folder):
+        os.mkdir(output_folder)
+
+    #####################################
+    # LOSO
+    #####################################
+    if split_type == 'loso':
+        num_trials = 10
+        if disease == 'crc':
+            data, meta = utils.load_CRC_data()
+            datasets = ['feng', 'hannigan', 'thomas', 'vogtmann', 'yu', 'zeller']
+        else:
+            ...
+
+        for dset in datasets:
+            res = []
+            for trial in range(num_trials):
+                if os.path.exists(temp_folder):
+                    shutil.rmtree(temp_folder, ignore_errors=True)
+                else:
+                    os.mkdir(temp_folder)
+
+                train = np.where(meta['Dataset'] != dset)[0]
+                test = np.where(meta['Dataset'] == dset)[0]
+                train_idx = meta.index[train]
+                test_idx = meta.index[test]
+                train_temp, validation_temp = train_test_split(np.arange(len(train_idx)),
+                                                               test_size=0.2,
+                                                               shuffle=True,
+                                                               stratify=meta.loc[train_idx, 'Group'])
+
+                val_idx = train_idx[validation_temp]
+                train_idx = train_idx[train_temp]
+                train_set, test_set, val_set = load_data_for_training(
+                    data, meta, train_idx, test_idx, val_idx=val_idx)
+                tune_res = run_raytune(train_set,
+                                       test_set,
+                                       val_set,
+                                       num_samples=100, max_num_epochs=75,
+                                       results_folder=temp_folder, split_type=split_type)
+                res.append({
+                    'test_dataset': dset,
+                    'test_acc': tune_res[0][0],
+                    'test_f1': tune_res[0][1],
+                    'test_auc': tune_res[0][2],
+                    'test_confusion_matrix': tune_res[0][3],
+                    'test_classification_report': tune_res[0][4],
+                    'best_state_dict': tune_res[0][5],
+                    'best_params': tune_res[1].config
+                })
+            shutil.rmtree(temp_folder, ignore_errors=True)
+
+            torch.save(res, '{}/{}_{}_{}.pt'.format(output_folder, split_type, disease, dset))
