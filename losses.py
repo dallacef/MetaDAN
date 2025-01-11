@@ -76,21 +76,21 @@ class MKMMDLoss(nn.Module):
                                    bandwidth=bandwidth,
                                    kernel_step_multiplier=kernel_step_multiplier)
         ret = 0.0
-        temp = 0.0
-        cnt = 0
+        temp1 = 0.0
+        cnt1 = 0
         for i in range(len(s_s) - 1):
-            temp += s_s[i, i + 1:].sum()
-            cnt += len(s_s) - i - 1
-        if cnt != 0:
-            ret += temp / cnt
+            temp1 += s_s[i, i + 1:].sum()
+            cnt1 += len(s_s) - i - 1
+        if cnt1 != 0:
+            ret += temp1 / cnt1
 
-        temp = 0.0
-        cnt = 0
+        temp2 = 0.0
+        cnt2 = 0
         for i in range(len(t_t) - 1):
-            temp += t_t[i, i + 1:].sum()
-            cnt += len(t_t) - i - 1
-        if cnt != 0:
-            ret += temp / cnt
+            temp2 += t_t[i, i + 1:].sum()
+            cnt2 += len(t_t) - i - 1
+        if cnt2 != 0:
+            ret += temp2 / cnt2
 
         ret -= 2*s_t.mean()
         return ret
