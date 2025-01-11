@@ -39,8 +39,8 @@ class DAN(nn.Module):
                  num_hidden_layers=2,
                  embed_size=8,
                  num_mmd_layers=2,
-                 bandwidth=1,
-                 kernel_step_multiplier=2.0):
+                 bandwidth_step_multiplier=2.0,
+                 bandwidth_alpha=0.1):
         """
 
         :param dim: input dimension size (number of features)
@@ -50,14 +50,15 @@ class DAN(nn.Module):
         :param num_hidden_layers:
         :param embed_size:
         :param num_mmd_layers:
-        :param bandwidth:
-        :param kernel_step_multiplier:
         """
         super(DAN, self).__init__()
         self.dim = dim
         self.dropout_rate = dropout_rate
+        self.num_kernels = num_kernels
         self.kernel_weights = nn.Parameter(torch.tensor([[1 / num_kernels] * num_kernels] * num_mmd_layers))
-
+        self.bandwidths = None
+        self.bandwidth_step_multiplier = bandwidth_step_multiplier
+        self.bandwidth_alpha = bandwidth_alpha
         # First layer
         hidden_layers = [LinBlockFirst(dim_in=dim,
                                        dim_out=embed_size * (2 ** num_hidden_layers),
@@ -75,6 +76,31 @@ class DAN(nn.Module):
         self.mmd_layers = nn.ModuleList(mmd_layers)
 
         self.output_layer = nn.Linear(in_features=embed_size, out_features=out_dim)
+
+    def set_bandwidths(self, initial_bandwidths):
+        """
+        Sets the initial bandwidths for loss calculation
+        """
+        self.bandwidths = torch.stack([
+            torch.tensor(
+                [initial_bandwidths[i] / (self.bandwidth_step_multiplier ** ((1 / 2) * (j - self.num_kernels // 2)))
+                 for j in range(self.num_kernels)]
+            )
+            for i in range(len(initial_bandwidths))
+        ])
+
+    def update_bandwidths(self, new_bandwidths):
+        """
+        Updates model bandwidths using exponential moving average (EMA).
+        """
+        new_bandwidths = torch.stack([
+            torch.tensor(
+                [new_bandwidths[i] / (self.bandwidth_step_multiplier ** ((1 / 2) * (j - self.num_kernels // 2)))
+                 for j in range(self.num_kernels)]
+            )
+            for i in range(len(new_bandwidths))
+        ])
+        self.bandwidths = (1 - self.bandwidth_alpha) * self.bandwidth + self.bandwidth_alpha * new_bandwidths
 
     def forward(self, data):
         """
