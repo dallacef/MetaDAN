@@ -30,21 +30,24 @@ def load_data_for_training(data, meta, train_idx, test_idx, val_idx=None):
     X_train = (X_train - mu) / s
     X_train = torch.nan_to_num(X_train, nan=0.0)
     label_train = torch.tensor(meta.loc[train_idx, 'Group'], dtype=torch.float32)
-    train_set = [[X_train[i], label_train[i]] for i in range(len(train_idx))]
+    dataset_train = list(meta.loc[train_idx, 'Dataset'])
+    train_set = [[X_train[i], label_train[i], dataset_train[i]] for i in range(len(train_idx))]
 
     # test set
     X_test = torch.tensor(data.loc[test_idx].values.astype(float), dtype=torch.float32)
     X_test = (X_test - mu) / s
     X_test = torch.nan_to_num(X_test, nan=0.0)
     label_test = torch.tensor(meta.loc[test_idx, 'Group'], dtype=torch.float32)
-    test_set = [[X_test[i], label_test[i]] for i in range(len(test_idx))]
+    dataset_test = list(meta.loc[test_idx, 'Dataset'])
+    test_set = [[X_test[i], label_test[i], dataset_test[i]] for i in range(len(test_idx))]
 
     if val_idx is not None:
         X_val = torch.tensor(data.loc[val_idx].values.astype(float), dtype=torch.float32)
         X_val = (X_val - mu) / s
         X_val = torch.nan_to_num(X_val, nan=0.0)
         label_val = torch.tensor(meta.loc[val_idx, 'Group'], dtype=torch.float32)
-        val_set = [[X_val[i], label_val[i]] for i in range(len(val_idx))]
+        dataset_val = list(meta.loc[val_idx, 'Dataset'])
+        val_set = [[X_val[i], label_val[i], dataset_val[i]] for i in range(len(val_idx))]
         return train_set, test_set, val_set
     return train_set, test_set
 
@@ -329,6 +332,7 @@ def run_raytune(train_data, test_data, val_data,
         reduction_factor=2,
     )
     train_data_ref = ray.put(torch.stack([x[0] for x in train_data]))
+    train_dataset_id_ref = ray.put(torch.stack([x[0] for x in train_data]))
     train_labels_ref = ray.put(torch.tensor([x[1] for x in train_data]))
     val_data_ref = ray.put(torch.stack([x[0] for x in val_data]))
     val_labels_ref = ray.put(torch.tensor([x[1] for x in val_data]))
@@ -338,7 +342,7 @@ def run_raytune(train_data, test_data, val_data,
     if split_type == 'loso':
         result = tune.run(
             partial(train_loso_model,
-                    train_data_ref=train_data_ref, train_labels_ref=train_labels_ref,
+                    train_data_ref=train_data_ref, train_labels_ref=train_labels_ref, train_dataset_id_ref=0,
                     val_data_ref=val_data_ref, val_labels_ref=val_labels_ref, test_data_ref=test_data_ref,
                     max_epochs=max_num_epochs
                     ),
