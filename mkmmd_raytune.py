@@ -182,7 +182,9 @@ def train_loso_model(config,
                                                 torch.nn.functional.softmax(net.kernel_weights[k], dim=-1))
 
             _mkmmd_loss = target_mkmmd_loss * config['target_lambda'] + source_mkmmd_loss * config['source_lambda']
-            _mkmmd_loss.backward()
+
+            total_loss = source_label_loss + _mkmmd_loss
+            total_loss.backward()
             optimizer.step()
 
         # Validation metrics
