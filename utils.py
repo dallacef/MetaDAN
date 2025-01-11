@@ -17,7 +17,7 @@ def load_CRC_data(studies=None, relative_abundance=True, clr=True, num_feat=250)
     data = pd.DataFrame()
     sample_num = 0
     for study in studies:
-        tmp = pd.read_csv('./FMT_Data/CRC_data/{}_data.csv'.format(study), index_col=0, low_memory=False)
+        tmp = pd.read_csv('./CRC_data/{}_data.csv'.format(study), index_col=0, low_memory=False)
         sample_names = ['sample_{}'.format(sample_num + i) for i in range(len(tmp))]
         sample_num += len(tmp)
         tmp.index = sample_names
