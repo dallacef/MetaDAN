@@ -46,3 +46,48 @@ def load_CRC_data(studies=None, relative_abundance=True, clr=True, num_feat=250)
         data = np.log(data.divide(geometric_means, axis=0))
     data = data.fillna(0.0)
     return data, meta
+
+
+def metric_from_confusion_matrix(conf_matrix, metric='mcc'):
+    # Extract values from confusion matrix
+    TP = conf_matrix[1, 1]
+    TN = conf_matrix[0, 0]
+    FP = conf_matrix[0, 1]
+    FN = conf_matrix[1, 0]
+
+    if metric == "acc":
+        # Calculate Accuracy
+        if (TP + TN + FP + FN) == 0:
+            return 0
+        accuracy = (TP + TN) / (TP + TN + FP + FN)
+        return accuracy
+
+    elif metric == "f1":
+        # Calculate F1 Score
+        precision = TP / (TP + FP) if (TP + FP) != 0 else 0
+        recall = TP / (TP + FN) if (TP + FN) != 0 else 0
+        f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) != 0 else 0
+        return f1
+
+    elif metric == "mcc":
+        # Calculate MCC
+        numerator = (TP * TN) - (FP * FN)
+        denominator = np.sqrt((TP + FP) * (TP + FN) * (TN + FP) * (TN + FN))
+        mcc = numerator / denominator if denominator != 0 else 0
+        mcc = (mcc + 1) / 2
+        return mcc
+
+    elif metric == "tpr":
+        # Calculate TPR
+        if (TP + FN) == 0:
+            return 0
+        tpr = TP / (TP + FN)
+        return tpr
+
+    elif metric == "fpr":
+        # Calculate FPR
+        if (FP + TN) == 0:
+            return 0
+        tpr = FP / (FP + TN)
+        return tpr
+
