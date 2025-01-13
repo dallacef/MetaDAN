@@ -57,12 +57,12 @@ def run_metaml(disease, split_type, output_folder="MetAML_results"):
         ...
     for d in meta['Dataset'].unique():
         if split_type == 'loso':
-            subset_data_cmd = f'python3 ./metaml/dataset_selection.py \
+            subset_data_cmd = f'python3 ./metaml_code/dataset_selection.py \
                                             ./{output_folder}/dataset.csv \
                                             ./{output_folder}/temp_dataset.txt \
                                             -z "d__" \
                                             -i Dataset:Group'
-            classify_cmd = f'python3 ./metaml/classification.py \
+            classify_cmd = f'python3 ./metaml_code/classification.py \
                             ./{output_folder}/temp_dataset.txt \
                             ./{output_folder}/{split_type}_{disease}_{d} \
                             -z "d__" \
@@ -78,13 +78,13 @@ def run_metaml(disease, split_type, output_folder="MetAML_results"):
                 if d == d2:
                     continue
 
-                subset_data_cmd = f'python3 ./metaml/dataset_selection.py \
+                subset_data_cmd = f'python3 ./metaml_code/dataset_selection.py \
                                     ./metaml_results/dataset.csv \
                                     ./metaml_results/temp_dataset.txt \
                                     -z "d__" \
                                     -s Dataset:{d}:{d2} \
                                     -i Dataset:Group'
-                classify_cmd = f'python3 ./metaml/classification.py \
+                classify_cmd = f'python3 ./metaml_code/classification.py \
                                             ./{output_folder}/temp_dataset.txt \
                                             ./{output_folder}/{split_type}_{disease}_{d}_train_{d2}_test \
                                             -z "d__" \
@@ -96,13 +96,13 @@ def run_metaml(disease, split_type, output_folder="MetAML_results"):
                 subprocess.run(full_cmd, shell=True, executable="/bin/bash")
 
         elif split_type == 'kfold':
-            subset_data_cmd = f'python3 ./metaml/dataset_selection.py \
+            subset_data_cmd = f'python3 ./metaml_code/dataset_selection.py \
                                             ./{output_folder}/dataset.csv \
                                             ./{output_folder}/temp_dataset.txt \
                                             -z "d__" \
                                             -s Dataset:{d} \
                                             -i Group'
-            classify_cmd = f'python3 ./metaml/classification.py \
+            classify_cmd = f'python3 ./metaml_code/classification.py \
                             ./{output_folder}/temp_dataset.txt \
                             ./{output_folder}/{split_type}_{disease}_{d} \
                             -z "d__" \
