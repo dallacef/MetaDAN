@@ -21,9 +21,12 @@ def run_siamcat(disease, split_type, output_folder="SIAMCAT_results"):
         os.mkdir(output_folder)
 
     if disease == 'crc':
-        data, meta = utils.load_CRC_data(clr=False)
-    else:
-        ...
+        # data, meta = utils.load_CRC_data()
+        data, meta = utils.load_CRC_data2(clr=False)
+    elif disease == 'ibd':
+        data, meta = utils.load_IBD_data(clr=False)
+    elif disease == 't2d':
+        data, meta = utils.load_T2D_data(clr=False)
 
     data.T.to_csv('./{}/dataset.csv'.format(output_folder))
     meta.to_csv('./{}/meta.csv'.format(output_folder))
@@ -47,14 +50,18 @@ def run_metaml(disease, split_type, output_folder="MetAML_results"):
         os.mkdir(output_folder)
 
     if disease == 'crc':
-        data, meta = utils.load_CRC_data(clr=False)
-        data.columns = ['d__' + data.columns[i] for i in range(len(data.columns))]
-        data_temp = data.reset_index().rename(columns={'index': 'sample_id'})
-        meta_temp = meta.reset_index().rename(columns={'index': 'sample_id'})
-        df_combined = pd.merge(data_temp, meta_temp, on='sample_id', how='inner').T
-        df_combined.to_csv(f'./{output_folder}/dataset.csv', index=True, sep='\t', header=False)
-    else:
-        ...
+        # data, meta = utils.load_CRC_data()
+        data, meta = utils.load_CRC_data2(clr=False)
+    elif disease == 'ibd':
+        data, meta = utils.load_IBD_data(clr=False)
+    elif disease == 't2d':
+        data, meta = utils.load_T2D_data(clr=False)
+    data.columns = ['d__' + data.columns[i] for i in range(len(data.columns))]
+    data_temp = data.reset_index().rename(columns={'index': 'sample_id'})
+    meta_temp = meta.reset_index().rename(columns={'index': 'sample_id'})
+    df_combined = pd.merge(data_temp, meta_temp, on='sample_id', how='inner').T
+    df_combined.to_csv(f'./{output_folder}/dataset.csv', index=True, sep='\t', header=False)
+
     for d in meta['Dataset'].unique():
         if split_type == 'loso':
             subset_data_cmd = f'python3 ./metaml_code/dataset_selection.py \
@@ -117,7 +124,7 @@ def run_metaml(disease, split_type, output_folder="MetAML_results"):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Get results for SIAMCAT and MetAML')
     parser.add_argument('--split_type', type=str, default='kfold', help='kfold/loso/toso')
-    parser.add_argument('--disease', type=str, default='crc', help='ibd/crc')
+    parser.add_argument('--disease', type=str, default='crc', help='crc/ibd/t2d')
 
     args = parser.parse_args()
     split_type = args.split_type
