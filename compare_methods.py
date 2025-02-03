@@ -6,9 +6,14 @@ import pandas as pd
 import seaborn as sns
 import torch
 import matplotlib as mpl
+from matplotlib.patches import Ellipse
+from skbio.stats.ordination import pcoa
 from matplotlib import pyplot as plt
 import scipy.stats as stats
-from sklearn.metrics import roc_auc_score, confusion_matrix, auc
+from scipy.spatial.distance import squareform, pdist
+from scipy.stats import sem
+from sklearn.decomposition import PCA
+from sklearn.metrics import roc_auc_score, confusion_matrix, auc, roc_curve
 
 import mkmmd_raytune
 import networks
@@ -78,7 +83,9 @@ def save_results(split_type,
             })), ignore_index=True)
 
 
-def get_metaDAN_results(disease, split_type, use_threshold=False):
+def get_metaDAN_results(disease, split_type, use_threshold=True):
+    global auroc_dict
+    global embedding_dict
     if split_type == 'kfold':
         pattern = rf"^{split_type}_{disease}_.+\.pt$"
         for filename in os.listdir('dan_results'):
@@ -86,7 +93,7 @@ def get_metaDAN_results(disease, split_type, use_threshold=False):
                 filepath = os.path.join('dan_results', filename)
                 ray_res = torch.load(filepath, weights_only=False)
                 if disease == 'crc':
-                    data, meta = utils.load_CRC_data2(studies=[ray_res[0]['test_dataset']])
+                    data, meta = utils.load_CRC_data(studies=[ray_res[0]['test_dataset']])
                 elif disease == 'ibd':
                     data, meta = utils.load_IBD_data(studies=[ray_res[0]['test_dataset']])
                 elif disease == 't2d':
@@ -114,6 +121,23 @@ def get_metaDAN_results(disease, split_type, use_threshold=False):
                         _, test_scores = net(torch.stack([test_set[j][0] for j in range(len(test_set))]))
                         test_scores = torch.sigmoid(test_scores)
                         test_labels = torch.stack([test_set[j][1] for j in range(len(test_set))]).numpy()
+                        if ray_res[i]['test_dataset'] in auroc_dict:
+                            if 'MetaDAN' in auroc_dict[ray_res[i]['test_dataset']]:
+                                auroc_dict[ray_res[i]['test_dataset']]['MetaDAN']['y_true'].append(test_labels.flatten())
+                                auroc_dict[ray_res[i]['test_dataset']]['MetaDAN']['y_score'].append(
+                                    test_scores.detach().numpy().flatten())
+                            else:
+                                auroc_dict[ray_res[i]['test_dataset']]['MetaDAN'] = {
+                                    'y_true': [test_labels.flatten()],
+                                    'y_score': [test_scores.detach().numpy().flatten()]
+                                }
+                        else:
+                            auroc_dict[ray_res[i]['test_dataset']] = {}
+                            auroc_dict[ray_res[i]['test_dataset']]['MetaDAN'] = {
+                                'y_true': [test_labels.flatten()],
+                                'y_score': [test_scores.detach().numpy().flatten()]
+                            }
+
                         save_results(
                             split_type,
                             'MetaDAN',
@@ -150,7 +174,7 @@ def get_metaDAN_results(disease, split_type, use_threshold=False):
         pattern = rf"^{split_type}_{disease}_.+\.pt$"
         if use_threshold:
             if disease == 'crc':
-                data, meta = utils.load_CRC_data2()
+                data, meta = utils.load_CRC_data()
             elif disease == 'ibd':
                 data, meta = utils.load_IBD_data()
             elif disease == 't2d':
@@ -175,6 +199,24 @@ def get_metaDAN_results(disease, split_type, use_threshold=False):
 
                         net.load_state_dict(ray_res[i]["best_state_dict"])
                         net.eval()
+                        # get all embeddings for later use
+                        X_train = torch.tensor(data.loc[ray_res[i]['train_idx']].values.astype(float), dtype=torch.float32)
+                        s, mu = torch.std_mean(X_train, dim=0)
+                        X = torch.tensor(data.values.astype(float), dtype=torch.float32)
+                        X = (X - mu) / s
+                        X = torch.nan_to_num(X, nan=0.0)
+                        embeddings, _ = net(X)
+                        embeddings = [embeddings[j].detach().numpy() for j in range(len(embeddings))]
+                        if ray_res[i]['test_dataset'] in embedding_dict:
+                            if ray_res[i]['test_auc'] > embedding_dict[ray_res[i]['test_dataset']]['test_auc']:
+                                embedding_dict[ray_res[i]['test_dataset']]['test_auc'] = ray_res[i]['test_auc']
+                                embedding_dict[ray_res[i]['test_dataset']]['embeddings'] = embeddings
+
+                        else:
+                            embedding_dict[ray_res[i]['test_dataset']] = {}
+                            embedding_dict[ray_res[i]['test_dataset']]['test_auc'] = ray_res[i]['test_auc']
+                            embedding_dict[ray_res[i]['test_dataset']]['embeddings'] = embeddings
+
                         #  get scores and labels of validation and determine threshold
                         _, val_scores = net(torch.stack([val_set[j][0] for j in range(len(val_set))]))
                         val_scores = torch.sigmoid(val_scores)
@@ -183,6 +225,22 @@ def get_metaDAN_results(disease, split_type, use_threshold=False):
                         test_embeds, test_scores = net(torch.stack([test_set[j][0] for j in range(len(test_set))]))
                         test_scores = torch.sigmoid(test_scores)
                         test_labels = torch.stack([test_set[j][1] for j in range(len(test_set))]).numpy()
+                        if ray_res[i]['test_dataset'] in auroc_dict:
+                            if 'MetaDAN' in auroc_dict[ray_res[i]['test_dataset']]:
+                                auroc_dict[ray_res[i]['test_dataset']]['MetaDAN']['y_true'].append(test_labels.flatten())
+                                auroc_dict[ray_res[i]['test_dataset']]['MetaDAN']['y_score'].append(
+                                    test_scores.detach().numpy().flatten())
+                            else:
+                                auroc_dict[ray_res[i]['test_dataset']]['MetaDAN'] = {
+                                    'y_true': [test_labels.flatten()],
+                                    'y_score': [test_scores.detach().numpy().flatten()]
+                                }
+                        else:
+                            auroc_dict[ray_res[i]['test_dataset']] = {}
+                            auroc_dict[ray_res[i]['test_dataset']]['MetaDAN'] = {
+                                'y_true': [test_labels.flatten()],
+                                'y_score': [test_scores.detach().numpy().flatten()]
+                            }
                         save_results(
                             split_type,
                             'MetaDAN',
@@ -224,8 +282,8 @@ def get_metaDAN_results(disease, split_type, use_threshold=False):
                 ray_res = torch.load(filepath, weights_only=False)
                 if use_threshold:
                     if disease == 'crc':
-                        data, meta = utils.load_CRC_data2(studies=[ray_res[0]['test_dataset'],
-                                                                   ray_res[0]['train_dataset']])
+                        data, meta = utils.load_CRC_data(studies=[ray_res[0]['test_dataset'],
+                                                                  ray_res[0]['train_dataset']])
                     elif disease == 'ibd':
                         data, meta = utils.load_IBD_data(studies=[ray_res[0]['test_dataset'],
                                                                   ray_res[0]['train_dataset']])
@@ -258,6 +316,29 @@ def get_metaDAN_results(disease, split_type, use_threshold=False):
                         _, test_scores = net(torch.stack([test_set[j][0] for j in range(len(test_set))]))
                         test_scores = torch.sigmoid(test_scores)
                         test_labels = torch.stack([test_set[j][1] for j in range(len(test_set))]).numpy()
+                        if ray_res[i]['train_dataset'] in auroc_dict:
+                            if ray_res[i]['test_dataset'] in auroc_dict[ray_res[i]['train_dataset']]:
+                                if 'MetaDAN' in auroc_dict[ray_res[i]['train_dataset']][ray_res[i]['test_dataset']]:
+                                    auroc_dict[ray_res[i]['train_dataset']][ray_res[i]['test_dataset']]['MetaDAN']['y_true'].append(test_labels.flatten())
+                                    auroc_dict[ray_res[i]['train_dataset']][ray_res[i]['test_dataset']]['MetaDAN']['y_score'].append(test_scores.detach().numpy().flatten())
+                                else:
+                                    auroc_dict[ray_res[i]['train_dataset']][ray_res[i]['test_dataset']]['MetaDAN'] = {
+                                        'y_true': [test_labels.flatten()],
+                                        'y_score': [test_scores.detach().numpy().flatten()]
+                                    }
+                            else:
+                                auroc_dict[ray_res[i]['train_dataset']][ray_res[i]['test_dataset']] = {}
+                                auroc_dict[ray_res[i]['train_dataset']][ray_res[i]['test_dataset']]['MetaDAN'] = {
+                                    'y_true': [test_labels.flatten()],
+                                    'y_score': [test_scores.detach().numpy().flatten()]
+                                }
+                        else:
+                            auroc_dict[ray_res[i]['train_dataset']] = {}
+                            auroc_dict[ray_res[i]['train_dataset']][ray_res[i]['test_dataset']] = {}
+                            auroc_dict[ray_res[i]['train_dataset']][ray_res[i]['test_dataset']]['MetaDAN'] = {
+                                'y_true': [test_labels.flatten()],
+                                'y_score': [test_scores.detach().numpy().flatten()]
+                            }
                         save_results(
                             split_type,
                             'MetaDAN',
@@ -309,7 +390,25 @@ def get_SIAMCAT_results(disease, split_type):
                         elif line.startswith("estimated probabilities"):
                             estimated_probs = [float(x) for x in line.split()[2:]]
                         elif line.startswith("sample index"):
-                            # sample_ids.extend([x for x in line.split()[2:]])
+                            study_name = filename.split('_', 2)[-1].rsplit('.', 1)[0]
+                            if study_name in auroc_dict:
+                                if 'SIAMCAT' in auroc_dict[study_name]:
+                                    auroc_dict[study_name]['SIAMCAT']['y_true'].append(
+                                        np.array(true_labels))
+                                    auroc_dict[study_name]['SIAMCAT']['y_score'].append(
+                                        np.array(estimated_probs))
+                                else:
+                                    auroc_dict[study_name]['SIAMCAT'] = {
+                                        'y_true': [np.array(true_labels)],
+                                        'y_score': [np.array(estimated_probs)]
+                                    }
+                            else:
+                                auroc_dict[study_name] = {}
+                                auroc_dict[study_name]['SIAMCAT'] = {
+                                    'y_true': [np.array(true_labels)],
+                                    'y_score': [np.array(estimated_probs)]
+                                }
+
                             cm = confusion_matrix(true_labels, estimated_labels)
                             if len(np.unique(true_labels)) > 1:
                                 save_results(
@@ -351,7 +450,24 @@ def get_SIAMCAT_results(disease, split_type):
                         elif line.startswith("estimated probabilities"):
                             estimated_probs = [float(x) for x in line.split()[2:]]
                         elif line.startswith("sample index"):
-                            # sample_ids.extend([x for x in line.split()[2:]])
+                            study_name = filename.split('_', 2)[-1].rsplit('.', 1)[0]
+                            if study_name in auroc_dict:
+                                if 'SIAMCAT' in auroc_dict[study_name]:
+                                    auroc_dict[study_name]['SIAMCAT']['y_true'].append(
+                                        np.array(true_labels))
+                                    auroc_dict[study_name]['SIAMCAT']['y_score'].append(
+                                        np.array(estimated_probs))
+                                else:
+                                    auroc_dict[study_name]['SIAMCAT'] = {
+                                        'y_true': [np.array(true_labels)],
+                                        'y_score': [np.array(estimated_probs)]
+                                    }
+                            else:
+                                auroc_dict[study_name] = {}
+                                auroc_dict[study_name]['SIAMCAT'] = {
+                                    'y_true': [np.array(true_labels)],
+                                    'y_score': [np.array(estimated_probs)]
+                                }
                             cm = confusion_matrix(true_labels, estimated_labels)
                             if len(np.unique(true_labels)) > 1:
                                 save_results(
@@ -399,7 +515,32 @@ def get_SIAMCAT_results(disease, split_type):
                         elif line.startswith("estimated probabilities"):
                             estimated_probs = [float(x) for x in line.split()[2:]]
                         elif line.startswith("sample index"):
-                            # sample_ids.extend([x for x in line.split()[2:]])
+                            if train_study in auroc_dict:
+                                if test_study in auroc_dict[train_study]:
+                                    if 'SIAMCAT' in auroc_dict[train_study][test_study]:
+                                        auroc_dict[train_study][test_study]['SIAMCAT'][
+                                            'y_true'].append(np.array(true_labels))
+                                        auroc_dict[train_study][test_study]['SIAMCAT'][
+                                            'y_score'].append(np.array(estimated_probs))
+                                    else:
+                                        auroc_dict[train_study][test_study][
+                                            'SIAMCAT'] = {
+                                            'y_true': [np.array(true_labels)],
+                                            'y_score': [np.array(estimated_probs)]
+                                        }
+                                else:
+                                    auroc_dict[train_study][test_study] = {}
+                                    auroc_dict[train_study][test_study]['SIAMCAT'] = {
+                                        'y_true': [np.array(true_labels)],
+                                        'y_score': [np.array(estimated_probs)]
+                                    }
+                            else:
+                                auroc_dict[train_study] = {}
+                                auroc_dict[train_study][test_study] = {}
+                                auroc_dict[train_study][test_study]['SIAMCAT'] = {
+                                    'y_true': [np.array(true_labels)],
+                                    'y_score': [np.array(estimated_probs)]
+                                }
                             cm = confusion_matrix(true_labels, estimated_labels)
                             if len(np.unique(true_labels)) > 1:
                                 save_results(
@@ -447,7 +588,23 @@ def get_metAML_results(disease, split_type):
                         elif line.startswith("estimated probabilities"):
                             estimated_probs = [float(x) for x in line.split()[2:]]
                         elif line.startswith("sample index"):
-                            # sample_ids.extend([x for x in line.split()[2:]])
+                            if study_name in auroc_dict:
+                                if 'MetAML' in auroc_dict[study_name]:
+                                    auroc_dict[study_name]['MetAML']['y_true'].append(
+                                        np.array(true_labels))
+                                    auroc_dict[study_name]['MetAML']['y_score'].append(
+                                        np.array(estimated_probs))
+                                else:
+                                    auroc_dict[study_name]['MetAML'] = {
+                                        'y_true': [np.array(true_labels)],
+                                        'y_score': [np.array(estimated_probs)]
+                                    }
+                            else:
+                                auroc_dict[study_name] = {}
+                                auroc_dict[study_name]['MetAML'] = {
+                                    'y_true': [np.array(true_labels)],
+                                    'y_score': [np.array(estimated_probs)]
+                                }
                             cm = confusion_matrix(true_labels, estimated_labels)
                             if len(np.unique(true_labels)) > 1:
                                 save_results(
@@ -494,7 +651,23 @@ def get_metAML_results(disease, split_type):
                         elif line.startswith("estimated probabilities"):
                             estimated_probs = [float(x) for x in line.split()[2:]]
                         elif line.startswith("sample index"):
-                            # sample_ids.extend([x for x in line.split()[2:]])
+                            if study_name in auroc_dict:
+                                if 'MetAML' in auroc_dict[study_name]:
+                                    auroc_dict[study_name]['MetAML']['y_true'].append(
+                                        np.array(true_labels))
+                                    auroc_dict[study_name]['MetAML']['y_score'].append(
+                                        np.array(estimated_probs))
+                                else:
+                                    auroc_dict[study_name]['MetAML'] = {
+                                        'y_true': [np.array(true_labels)],
+                                        'y_score': [np.array(estimated_probs)]
+                                    }
+                            else:
+                                auroc_dict[study_name] = {}
+                                auroc_dict[study_name]['MetAML'] = {
+                                    'y_true': [np.array(true_labels)],
+                                    'y_score': [np.array(estimated_probs)]
+                                }
                             cm = confusion_matrix(true_labels, estimated_labels)
                             if len(np.unique(true_labels)) > 1:
                                 save_results(
@@ -541,7 +714,32 @@ def get_metAML_results(disease, split_type):
                         elif line.startswith("estimated probabilities"):
                             estimated_probs = [float(x) for x in line.split()[2:]]
                         elif line.startswith("sample index"):
-                            # sample_ids.extend([x for x in line.split()[2:]])
+                            if train_study in auroc_dict:
+                                if test_study in auroc_dict[train_study]:
+                                    if 'MetAML' in auroc_dict[train_study][test_study]:
+                                        auroc_dict[train_study][test_study]['MetAML'][
+                                            'y_true'].append(np.array(true_labels))
+                                        auroc_dict[train_study][test_study]['MetAML'][
+                                            'y_score'].append(np.array(estimated_probs))
+                                    else:
+                                        auroc_dict[train_study][test_study][
+                                            'MetAML'] = {
+                                            'y_true': [np.array(true_labels)],
+                                            'y_score': [np.array(estimated_probs)]
+                                        }
+                                else:
+                                    auroc_dict[train_study][test_study] = {}
+                                    auroc_dict[train_study][test_study]['MetAML'] = {
+                                        'y_true': [np.array(true_labels)],
+                                        'y_score': [np.array(estimated_probs)]
+                                    }
+                            else:
+                                auroc_dict[train_study] = {}
+                                auroc_dict[train_study][test_study] = {}
+                                auroc_dict[train_study][test_study]['MetAML'] = {
+                                    'y_true': [np.array(true_labels)],
+                                    'y_score': [np.array(estimated_probs)]
+                                }
                             cm = confusion_matrix(true_labels, estimated_labels)
                             if len(np.unique(true_labels)) > 1:
                                 save_results(
@@ -618,9 +816,26 @@ def compute_mean_and_me(df,
     return result
 
 
-def generate_heatmaps(df, split_type, output_folder):
+def generate_heatmaps(df, split_type, disease, output_folder):
     metrics = ['AUC', 'F1', 'MCC']
-
+    rename_dict = {
+        'HanniganGD_2017': 'Hannigan',
+        'FengQ_2015': 'Feng',
+        'GuptaA_2019': 'Gupta',
+        'YachidaS_2019': 'Yachida',
+        'YuJ_2015': 'Yu',
+        'ThomasAM_2019_c': 'Thomas',
+        'ZellerG_2014': 'Zeller',
+        'VogtmannE_2016': 'Vogtmann',
+        'WirbelJ_2018': 'Wirbel',
+        'NielsenHB_2014': 'Nielsen',
+        'HMP_2019_ibdmdb': 'IBDMDB',
+        'IjazUZ_2017': 'Ijaz',
+        'KarlssonFH_2013': 'Karlsson',
+        'QinJ_2012': 'Qin'
+    }
+    df = df.replace({"Training Dataset": rename_dict})
+    df = df.replace({"Testing Dataset": rename_dict})
     for metric in metrics:
 
         for method in df['Method'].unique():
@@ -633,21 +848,239 @@ def generate_heatmaps(df, split_type, output_folder):
             )
 
             # Plot heatmap
-            plt.figure(figsize=(8, 6))
+            plt.figure(figsize=(10, 8))
             sns.heatmap(heatmap_data, annot=True, cmap='rocket', vmin=0, vmax=1,
-                        fmt='.3f', cbar_kws={'label': metric})
-            plt.title(f'{method} ({metric})')
-            plt.xlabel('Testing Dataset')
-            plt.ylabel('Training Dataset')
-            # Save the heatmap as a PNG file
-            plt.savefig(f'{output_folder}/{split_type}_heatmap_{metric}_{method}.png', dpi=300)
+                        fmt='.3f', cbar_kws={'label': metric}, annot_kws={'size': 13})
+            plt.title(f'{method} ({metric})', fontsize=15)
+            plt.xlabel('Testing Dataset', fontsize=15)
+            plt.ylabel('Training Dataset', fontsize=15)
+            plt.xticks(rotation=45, ha='center', fontsize=11)
+            plt.yticks(rotation=0, ha='right', fontsize=11)
+            plt.tight_layout()
+            plt.savefig(f'{output_folder}/{split_type}_{disease}_heatmap_{metric}_{method}.png', dpi=300)
             plt.show()
             plt.close()
 
 
+def plot_metrics_boxplots(df):
+    metrics = ["Accuracy", "AUC", "F1", "MCC"]
+    rename_dict = {
+        'HanniganGD_2017': 'Hannigan (CRC)',
+        'FengQ_2015': 'Feng (CRC)',
+        'GuptaA_2019': 'Gupta (CRC)',
+        'YachidaS_2019': 'Yachida (CRC)',
+        'YuJ_2015': 'Yu (CRC)',
+        'ThomasAM_2019_c': 'Thomas (CRC)',
+        'ZellerG_2014': 'Zeller (CRC)',
+        'VogtmannE_2016': 'Vogtmann (CRC)',
+        'WirbelJ_2018': 'Wirbel (CRC)',
+        'NielsenHB_2014': 'Nielsen (IBD)',
+        'HMP_2019_ibdmdb': 'IBDMDB (IBD)',
+        'IjazUZ_2017': 'Ijaz (IBD)',
+        'KarlssonFH_2013': 'Karlsson (T2D)',
+        'QinJ_2012': 'Qin (T2D)'
+    }
+    df = df.replace({"Dataset": rename_dict})
+    dataset_order = [
+        "Feng (CRC)",
+        "Gupta (CRC)",
+        "Hannigan (CRC)",
+        "Thomas (CRC)",
+        "Vogtmann (CRC)",
+        "Wirbel (CRC)",
+        "Yachida (CRC)",
+        "Yu (CRC)",
+        "Zeller (CRC)",
+        "IBDMDB (IBD)",
+        "Ijaz (IBD)",
+        "Nielsen (IBD)",
+        "Karlsson (T2D)",
+        "Qin (T2D)"
+    ]
+    df["Dataset"] = pd.Categorical(df["Dataset"], categories=dataset_order, ordered=True)
+    figsize = (16, 10)
+    palette = "Set2"
+    for metric in metrics:
+        plt.figure(figsize=figsize)
+        sns.boxplot(x="Dataset", y=metric, hue="Method", data=df, palette=palette)
+
+        # Improve readability
+        plt.xticks(rotation=45, ha='right')
+        plt.title(f"Comparison of {metric} across Datasets")
+        plt.legend(title="Method")
+        plt.grid(axis="y", linestyle="--", alpha=0.7)
+        plt.tight_layout()
+
+        # Show plot
+        plt.show()
+        ...
+
+
+def plot_auroc_kfold(auc_dict, split_type, output_folder, alpha=0.2, n_points=100):
+    """
+    Plots an aggregated AUROC curve with confidence intervals using k-fold cross-validation results.
+
+    Parameters:
+    - y_trues: List of numpy arrays, each containing true labels from a CV fold.
+    - y_scores: List of numpy arrays, each containing predicted probabilities for the positive class from the same fold.
+    - alpha: Transparency level for the confidence interval (default: 0.2).
+    - n_points: Number of points to interpolate the ROC curve for smooth averaging (default: 100).
+    """
+    rename_dict = {
+        'HanniganGD_2017': 'Hannigan (CRC)',
+        'FengQ_2015': 'Feng (CRC)',
+        'GuptaA_2019': 'Gupta (CRC)',
+        'YachidaS_2019': 'Yachida (CRC)',
+        'YuJ_2015': 'Yu (CRC)',
+        'ThomasAM_2019_c': 'Thomas (CRC)',
+        'ZellerG_2014': 'Zeller (CRC)',
+        'VogtmannE_2016': 'Vogtmann (CRC)',
+        'WirbelJ_2018': 'Wirbel (CRC)',
+        'NielsenHB_2014': 'Nielsen (IBD)',
+        'HMP_2019_ibdmdb': 'IBDMDB (IBD)',
+        'IjazUZ_2017': 'Ijaz (IBD)',
+        'KarlssonFH_2013': 'Karlsson (T2D)',
+        'QinJ_2012': 'Qin (T2D)'
+    }
+    all_fprs = np.linspace(0, 1, n_points)  # Fixed set of FPRs for interpolation
+    for study in list(auc_dict.keys()):
+        plt.figure(figsize=(8, 6))
+        for method in list(auc_dict[study].keys()):
+            tprs = []
+            aucs = []
+            y_trues = auc_dict[study][method]['y_true']
+            y_scores = auc_dict[study][method]['y_score']
+            for y_true, y_score in zip(y_trues, y_scores):
+                fpr, tpr, _ = roc_curve(y_true, y_score)
+                roc_auc = auc(fpr, tpr)
+                aucs.append(roc_auc)
+                tprs.append(np.interp(all_fprs, fpr, tpr))  # Interpolate to standard FPR grid
+            mean_tpr = np.mean(tprs, axis=0)
+            std_tpr = sem(tprs, axis=0)
+            plt.plot(all_fprs, mean_tpr, label=f"{method} (Avg. AUC = {np.mean(aucs):.3f})")
+            plt.fill_between(all_fprs, mean_tpr - std_tpr, mean_tpr + std_tpr, alpha=alpha)
+
+        plt.plot([0, 1], [0, 1], linestyle="--", color="gray", alpha=0.6)
+
+        plt.xlabel("False Positive Rate")
+        plt.ylabel("True Positive Rate")
+        plt.title(f"{rename_dict[study]} ROC Curves")
+        plt.legend(loc="lower right")
+        plt.grid(alpha=0.3)
+        plt.savefig(f'{output_folder}/{split_type}_roc__{study}.png', dpi=300)
+        ...
+    ...
+
+
+def plot_pca(data, meta, split_type, disease, test_dataset_name='', n_components=2, figsize=(8, 6), palette="tab10",
+             data_type='clr', pca_or_pcoa='pca', save_plot=True):
+    rename_dict = {
+        0: 'Control',
+        1: 'Case'
+    }
+
+    def add_ellipses(ax, pca_df, dataset_col, palette, num_std=1):
+        """
+        Adds confidence ellipses for each dataset in the PCoA plot, matching the scatter plot colors.
+
+        Parameters:
+        - ax: Matplotlib axis object.
+        - pcoa_df: DataFrame containing "PC1", "PC2", and dataset column.
+        - dataset_col: Column indicating dataset groups.
+        - palette: Dictionary mapping dataset names to colors.
+        """
+        datasets = pca_df[dataset_col].unique()
+
+        for dataset in datasets:
+            subset = pca_df[pca_df[dataset_col] == dataset]
+            x_mean, y_mean = subset["PC1"].mean(), subset["PC2"].mean()
+            cov = np.cov(subset[["PC1", "PC2"]].T)
+            eigvals, eigvecs = np.linalg.eigh(cov)
+
+            angle = np.degrees(np.arctan2(*eigvecs[:, 0][::-1]))
+            width, height = (num_std*2) * np.sqrt(eigvals)  # 1 standard deviation
+
+            # Use the same color as in the scatter plot
+            color = palette[dataset]
+
+            ellipse = Ellipse(
+                xy=(x_mean, y_mean), width=width, height=height,
+                angle=angle, color=color, alpha=.8, fill=False, linewidth=1.5
+            )
+
+            ax.add_patch(ellipse)
+
+    meta = meta.replace({"Group": rename_dict})
+    # Perform PCA or PCoA
+    if pca_or_pcoa == 'pca':
+        pca = PCA(n_components=n_components)
+        pca_results = pca.fit_transform(data)
+        pca_df = pd.DataFrame(pca_results, columns=[f"PC{i + 1}" for i in range(n_components)])
+
+    else:
+        distance_matrix = squareform(pdist(data, metric="braycurtis"))  # Change metric if needed
+        pcoa_results = pcoa(distance_matrix)
+        pca_df = pd.DataFrame(pcoa_results.samples.iloc[:, :n_components],
+                              columns=[f"PC{i + 1}" for i in range(n_components)])
+
+    # Create a DataFrame for plotting
+    pca_df['Dataset'] = meta['Dataset'].values
+    pca_df['Group'] = meta['Group'].values
+
+    # Define markers for conditions
+    unique_conditions = meta['Group'].unique()
+    markers = ["o", "X", "^", "v", "P", "X"][:len(unique_conditions)]  # Extend if needed
+    marker_dict = dict(zip(unique_conditions, markers))
+
+    dataset_col = "Dataset"  # Change to your dataset column name
+    palette = dict(
+        zip(pca_df[dataset_col].unique(), sns.color_palette(palette, n_colors=pca_df[dataset_col].nunique())))
+
+    # Plot PCA with colors for datasets and shapes for conditions
+    fig, ax = plt.subplots(figsize=figsize)
+
+    sns.scatterplot(
+        ax=ax,
+        x="PC1", y="PC2",
+        hue='Dataset', style='Group',
+        markers=marker_dict, palette=palette,
+        data=pca_df, edgecolor="black", alpha=0.6
+    )
+    add_ellipses(ax, pca_df, dataset_col, palette, num_std=1)
+    if pca_or_pcoa == 'pca':
+        plt.xlabel(f"PC1 ({pca.explained_variance_ratio_[0] * 100:.2f}% variance)")
+        plt.ylabel(f"PC2 ({pca.explained_variance_ratio_[1] * 100:.2f}% variance)")
+    else:
+        plt.xlabel(f"PC1 ({pcoa_results.proportion_explained[0] * 100:.2f}% variance)")
+        plt.ylabel(f"PC2 ({pcoa_results.proportion_explained[1] * 100:.2f}% variance)")
+
+    if data_type == 'clr':
+        plt.title(f"{pca_or_pcoa.upper()} of CLR-transformed data")
+    elif data_type == 'relative_abundance':
+        plt.title(f"{pca_or_pcoa.upper()} of relative abundance data")
+    else:
+        plt.title(f"{pca_or_pcoa.upper()} of MetaDAN embedded data ({test_dataset_name})")
+    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', title="Legend")
+    plt.grid(alpha=0.4)
+    plt.tight_layout()
+    if save_plot:
+        if data_type == 'clr':
+            plt.savefig(f'{output_folder}/{split_type}_{disease}_{pca_or_pcoa}_clr.png', dpi=300)
+        elif data_type == 'relative_abundance':
+            plt.savefig(f'{output_folder}/{split_type}_{disease}_{pca_or_pcoa}_relative_abundance.png', dpi=300)
+        else:
+            plt.savefig(f'{output_folder}/{split_type}_{disease}_{pca_or_pcoa}_{test_dataset_name}.png', dpi=300)
+
+    plt.show()
+    plt.close()
+    ...
+
+
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='model comparisons')
-    parser.add_argument('--split_type', type=str, default='kfold', help='kfold/loso/toso')
+    parser.add_argument('--split_type', type=str, default='loso', help='kfold/loso/toso')
     parser.add_argument('--disease', type=str, default='crc', help='crc/ibd/t2d')
 
     args = parser.parse_args()
@@ -666,19 +1099,66 @@ if __name__ == '__main__':
         results_df = pd.DataFrame(columns=["Method",
                                            "Dataset",
                                            "Accuracy", "AUC", "F1", "MCC"])
-    # get_metaDAN_results(disease, split_type)
-    get_metaDAN_results(disease, split_type, use_threshold=True)
-    get_SIAMCAT_results(disease, split_type)
-    get_metAML_results(disease, split_type)
-    if split_type == 'toso':
-        for d in results_df['Training Dataset'].unique():
-            results_df.loc[results_df['Training Dataset'] == d, 'Training Dataset'] = d.capitalize()
-            results_df.loc[results_df['Testing Dataset'] == d, 'Testing Dataset'] = d.capitalize()
-    else:
-        for d in results_df['Dataset'].unique():
-            results_df.loc[results_df['Dataset'] == d, 'Dataset'] = d.capitalize()
-    t = compute_mean_and_me(results_df, split_type, mean_only=False)
-    ...
-    generate_heatmaps(results_df, split_type, output_folder)
+    rename_dict = {
+        'HanniganGD_2017': 'Hannigan',
+        'FengQ_2015': 'Feng',
+        'GuptaA_2019': 'Gupta',
+        'YachidaS_2019': 'Yachida',
+        'YuJ_2015': 'Yu',
+        'ThomasAM_2019_c': 'Thomas',
+        'ZellerG_2014': 'Zeller',
+        'VogtmannE_2016': 'Vogtmann',
+        'WirbelJ_2018': 'Wirbel',
+        'NielsenHB_2014': 'Nielsen',
+        'HMP_2019_ibdmdb': 'IBDMDB',
+        'IjazUZ_2017': 'Ijaz',
+        'KarlssonFH_2013': 'Karlsson',
+        'QinJ_2012': 'Qin'
+    }
 
+    auroc_dict = {}
+    embedding_dict = {}
+    # for disease in ['crc', 'ibd', 't2d']:
+    #     for split_type in ['kfold', 'loso']:
+    #         get_SIAMCAT_results(disease, split_type)
+    #         get_metAML_results(disease, split_type)
+    #         get_metaDAN_results(disease, split_type, use_threshold=True)
+    #         plot_auroc_kfold(auroc_dict, split_type, output_folder)
+
+
+    if disease == 'crc':
+        data, meta = utils.load_CRC_data(clr=False)
+    elif disease == 'ibd':
+        data, meta = utils.load_IBD_data(clr=False)
+    elif disease == 't2d':
+        data, meta = utils.load_T2D_data(clr=False)
+    meta = meta.replace({"Dataset": rename_dict})
+    # plot_pca(data, meta, split_type, disease, data_type='relative_abundance')
+    plot_pca(data, meta, split_type, disease, data_type='relative_abundance', pca_or_pcoa='pcoa', figsize=(12, 8))
+
+    if disease == 'crc':
+        data, meta = utils.load_CRC_data()
+    elif disease == 'ibd':
+        data, meta = utils.load_IBD_data()
+    elif disease == 't2d':
+        data, meta = utils.load_T2D_data()
+    meta = meta.replace({"Dataset": rename_dict})
+    # plot_pca(data, meta, split_type, disease, data_type='clr')
+    plot_pca(data, meta, split_type, disease, data_type='clr', pca_or_pcoa='pcoa', figsize=(12, 8))
+
+    get_metaDAN_results(disease, split_type)
+    embedding_dict = {rename_dict.get(k, k): v for k, v in embedding_dict.items()}
+    for test_dataset in list(embedding_dict.keys()):
+        plot_pca(embedding_dict[test_dataset]['embeddings'][-1], meta, split_type, disease,
+                 test_dataset_name=test_dataset, data_type='embeddings')
+
+
+    # get_metaDAN_results(disease, split_type)
+    # get_SIAMCAT_results(disease, split_type)
+    # get_metAML_results(disease, split_type)
+    # t = compute_mean_and_me(results_df, split_type, mean_only=False)
+    # generate_heatmaps(results_df, split_type, disease, output_folder)
+
+    # plot_metrics_boxplots(results_df)
+    # plot_auroc_kfold(auroc_dict, split_type, output_folder)
     ...

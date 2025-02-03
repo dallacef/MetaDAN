@@ -22,7 +22,7 @@ def run_siamcat(disease, split_type, output_folder="SIAMCAT_results"):
 
     if disease == 'crc':
         # data, meta = utils.load_CRC_data()
-        data, meta = utils.load_CRC_data2(clr=False)
+        data, meta = utils.load_CRC_data(clr=False)
     elif disease == 'ibd':
         data, meta = utils.load_IBD_data(clr=False)
     elif disease == 't2d':
@@ -51,7 +51,7 @@ def run_metaml(disease, split_type, output_folder="MetAML_results"):
 
     if disease == 'crc':
         # data, meta = utils.load_CRC_data()
-        data, meta = utils.load_CRC_data2(clr=False)
+        data, meta = utils.load_CRC_data(clr=False)
     elif disease == 'ibd':
         data, meta = utils.load_IBD_data(clr=False)
     elif disease == 't2d':

@@ -30,9 +30,6 @@ def load_data_for_training(data, meta, train_idx, test_idx, val_idx=None):
 
     s, mu = torch.std_mean(X_train, dim=0)
     X_train = (X_train - mu) / s
-    # X_min = X_train.min(dim=0).values
-    # X_max = X_train.max(dim=0).values
-    # X_train = (X_train - X_min) / (X_max - X_min)
     X_train = torch.nan_to_num(X_train, nan=0.0)
     label_train = torch.tensor(meta.loc[train_idx, 'Group'], dtype=torch.float32)
     dataset_train = list(meta.loc[train_idx, 'Dataset'])
@@ -41,7 +38,6 @@ def load_data_for_training(data, meta, train_idx, test_idx, val_idx=None):
     # test set
     X_test = torch.tensor(data.loc[test_idx].values.astype(float), dtype=torch.float32)
     X_test = (X_test - mu) / s
-    # X_test = (X_test - X_min) / (X_max - X_min)
     X_test = torch.nan_to_num(X_test, nan=0.0)
     label_test = torch.tensor(meta.loc[test_idx, 'Group'], dtype=torch.float32)
     dataset_test = list(meta.loc[test_idx, 'Dataset'])
@@ -50,7 +46,6 @@ def load_data_for_training(data, meta, train_idx, test_idx, val_idx=None):
     if val_idx is not None:
         X_val = torch.tensor(data.loc[val_idx].values.astype(float), dtype=torch.float32)
         X_val = (X_val - mu) / s
-        # X_val = (X_val - X_min) / (X_max - X_min)
         X_val = torch.nan_to_num(X_val, nan=0.0)
         label_val = torch.tensor(meta.loc[val_idx, 'Group'], dtype=torch.float32)
         dataset_val = list(meta.loc[val_idx, 'Dataset'])
@@ -725,7 +720,7 @@ if __name__ == '__main__':
         if disease == 'crc':
             # data, meta = utils.load_CRC_data()
             # datasets = ['feng', 'hannigan', 'thomas', 'vogtmann', 'yu', 'zeller']
-            data, meta = utils.load_CRC_data2()
+            data, meta = utils.load_CRC_data()
             datasets = ['FengQ_2015', 'GuptaA_2019', 'HanniganGD_2017', 'ThomasAM_2019_c', 'VogtmannE_2016',
                         'WirbelJ_2018', 'YachidaS_2019', 'YuJ_2015', 'ZellerG_2014']
         elif disease == 'ibd':
@@ -802,7 +797,7 @@ if __name__ == '__main__':
                     continue
                 if disease == 'crc':
                     # data, meta = utils.load_CRC_data([dset, dset2])
-                    data, meta = utils.load_CRC_data2([dset, dset2])
+                    data, meta = utils.load_CRC_data([dset, dset2])
                 elif disease == 'ibd':
                     data, meta = utils.load_IBD_data([dset, dset2])
                 elif disease == 't2d':
@@ -871,7 +866,7 @@ if __name__ == '__main__':
                 continue
             if disease == 'crc':
                 # data, meta = utils.load_CRC_data(studies=[dataset])
-                data, meta = utils.load_CRC_data2(studies=[dataset])
+                data, meta = utils.load_CRC_data(studies=[dataset])
             elif disease == 'ibd':
                 data, meta = utils.load_IBD_data(studies=[dataset])
             elif disease == 't2d':

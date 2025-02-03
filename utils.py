@@ -2,53 +2,7 @@ import numpy as np
 import pandas as pd
 
 
-def load_CRC_data(studies=None, relative_abundance=True, clr=True, num_feat=250):
-    """
-
-    :param studies:
-    :param relative_abundance:
-    :param clr:
-    :param num_feat: number of each study's most abundant features to keep
-    :return:
-    """
-    if studies is None:
-        studies = ['feng', 'hannigan', 'thomas', 'vogtmann', 'yu', 'zeller']
-    meta = pd.DataFrame()
-    data = pd.DataFrame()
-    sample_num = 0
-    for study in studies:
-        tmp = pd.read_csv('./CRC_data/{}_data.csv'.format(study), index_col=0, low_memory=False)
-        sample_names = ['sample_{}'.format(sample_num + i) for i in range(len(tmp))]
-        sample_num += len(tmp)
-        tmp.index = sample_names
-        data = pd.concat([data, tmp.iloc[:, :-1]]).fillna(0.0)
-
-        tmp_meta = pd.DataFrame(index=sample_names)
-        tmp_meta['Dataset'] = [study]*len(tmp_meta)
-        tmp_meta['Condition'] = tmp['status']
-        tmp_meta['Group'] = [0 if tmp['status'][i] == 'control' else 1 for i in range(len(tmp['status']))]
-        meta = pd.concat([meta, tmp_meta])
-    data = data.astype(float)
-    data = data.loc[meta.index, :]
-    selected_cols = set()
-    for dataset in meta['Dataset'].unique():
-        dataset_indices = meta[meta['Dataset'] == dataset].index
-        top_cols = data.loc[dataset_indices].var().nlargest(num_feat).index
-        selected_cols.update(top_cols)
-    cols = data.columns.isin(selected_cols)
-    data = data.loc[:, cols]
-    if relative_abundance:
-        data = data.div(data.sum(axis=1), axis=0)
-        meta = meta.loc[data.index, :]
-    if clr:
-        data = data + 1e-5
-        geometric_means = np.exp(np.log(data).mean(axis=1))
-        data = np.log(data.divide(geometric_means, axis=0))
-    data = data.fillna(0.0)
-    return data, meta
-
-
-def load_IBD_data(studies=None, clr=True, num_feat=150):
+def load_IBD_data(studies=None, clr=True, num_feat=150, train_studies=None):
     """
     :param studies:
     :param clr:
@@ -118,7 +72,9 @@ def load_IBD_data(studies=None, clr=True, num_feat=150):
     # realign data index to meta's
     data = data.loc[meta.index, :]
     selected_cols = set()
-    for dataset in studies:
+    if train_studies is None:
+        train_studies = meta['Dataset'].unique()
+    for dataset in train_studies:
         dataset_indices = meta[meta['Dataset'] == dataset].index
         top_cols = data.loc[dataset_indices].var().nlargest(num_feat).index
         selected_cols.update(top_cols)
@@ -132,7 +88,7 @@ def load_IBD_data(studies=None, clr=True, num_feat=150):
     return data, meta
 
 
-def load_CRC_data2(studies=None, clr=True, num_feat=150, keep_adenoma=False):
+def load_CRC_data(studies=None, clr=True, num_feat=150, keep_adenoma=False, train_studies=None):
     """
     :param studies:
     :param clr:
@@ -232,7 +188,9 @@ def load_CRC_data2(studies=None, clr=True, num_feat=150, keep_adenoma=False):
     # realign data index to meta's
     data = data.loc[meta.index, :]
     selected_cols = set()
-    for dataset in meta['Dataset'].unique():
+    if train_studies is None:
+        train_studies = meta['Dataset'].unique()
+    for dataset in train_studies:
         dataset_indices = meta[meta['Dataset'] == dataset].index
         top_cols = data.loc[dataset_indices].var().nlargest(num_feat).index
         selected_cols.update(top_cols)
@@ -246,7 +204,7 @@ def load_CRC_data2(studies=None, clr=True, num_feat=150, keep_adenoma=False):
     return data, meta
 
 
-def load_T2D_data(studies=None, clr=True, num_feat=150, keep_igt=False):
+def load_T2D_data(studies=None, clr=True, num_feat=150, keep_igt=False, train_studies=None):
     """
     :param studies:
     :param clr:
@@ -296,7 +254,9 @@ def load_T2D_data(studies=None, clr=True, num_feat=150, keep_igt=False):
     # realign data index to meta's
     data = data.loc[meta.index, :]
     selected_cols = set()
-    for dataset in meta['Dataset'].unique():
+    if train_studies is None:
+        train_studies = meta['Dataset'].unique()
+    for dataset in train_studies:
         dataset_indices = meta[meta['Dataset'] == dataset].index
         top_cols = data.loc[dataset_indices].var().nlargest(num_feat).index
         selected_cols.update(top_cols)
