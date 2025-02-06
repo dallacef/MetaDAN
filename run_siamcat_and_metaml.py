@@ -15,18 +15,18 @@ def run_siamcat(disease, split_type, output_folder="SIAMCAT_results"):
     SIAMCAT (Wirbel et al. 2021)
     * input is relative abundance data
     """
+    # todo fix data loading so that testing data isn't used in OTU keep calcualtions
     if os.path.isdir(output_folder):
         ...
     else:
         os.mkdir(output_folder)
 
     if disease == 'crc':
-        # data, meta = utils.load_CRC_data()
-        data, meta = utils.load_CRC_data(clr=False)
+        data, meta = utils.load_CRC_data()
     elif disease == 'ibd':
-        data, meta = utils.load_IBD_data(clr=False)
+        data, meta = utils.load_IBD_data()
     elif disease == 't2d':
-        data, meta = utils.load_T2D_data(clr=False)
+        data, meta = utils.load_T2D_data()
 
     data.T.to_csv('./{}/dataset.csv'.format(output_folder))
     meta.to_csv('./{}/meta.csv'.format(output_folder))
@@ -34,12 +34,12 @@ def run_siamcat(disease, split_type, output_folder="SIAMCAT_results"):
     ./{output_folder}/dataset.csv -m ./{output_folder}/meta.csv \
     -o {output_folder}/ -s {split_type} -d {disease}'
     # todo remove tax argument from SIAMCAT R file
-    # todo make sure all results for all trials are returned
 
     subprocess.run(cmd, shell=True, executable="/bin/bash")
 
 
 def run_metaml(disease, split_type, output_folder="MetAML_results"):
+    # todo fix data loading so that testing data isn't used in OTU keep calcualtions
     """
     MetAML (Pasolli et al. 20216)
     * input is relative abundance data
@@ -50,12 +50,11 @@ def run_metaml(disease, split_type, output_folder="MetAML_results"):
         os.mkdir(output_folder)
 
     if disease == 'crc':
-        # data, meta = utils.load_CRC_data()
-        data, meta = utils.load_CRC_data(clr=False)
+        data, meta = utils.load_CRC_data()
     elif disease == 'ibd':
-        data, meta = utils.load_IBD_data(clr=False)
+        data, meta = utils.load_IBD_data()
     elif disease == 't2d':
-        data, meta = utils.load_T2D_data(clr=False)
+        data, meta = utils.load_T2D_data()
     data.columns = ['d__' + data.columns[i] for i in range(len(data.columns))]
     data_temp = data.reset_index().rename(columns={'index': 'sample_id'})
     meta_temp = meta.reset_index().rename(columns={'index': 'sample_id'})

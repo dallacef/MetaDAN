@@ -25,7 +25,6 @@ import utils
 
 
 def load_data_for_training(data, meta, train_idx, test_idx, val_idx=None):
-    # data is CLR transformed relative abundances, need to standardize for input
     X_train = torch.tensor(data.loc[train_idx].values.astype(float), dtype=torch.float32)
 
     s, mu = torch.std_mean(X_train, dim=0)
@@ -697,16 +696,20 @@ def run_raytune(train_data, test_data, val_data,
     print(test_res[3])
     return test_res, best_res
 
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='mkmmd model hyperparameter tuning')
     parser.add_argument('--split_type', type=str, default='loso', help='kfold/loso/toso')
     parser.add_argument('--disease', type=str, default='crc', help='crc/ibd/t2d')
+    parser.add_argument('--transform', type=str, default='relative_abundance',
+                        help='relative_abundance/clr/ilr')
 
     args = parser.parse_args()
     torch.set_default_dtype(torch.float32)
 
     split_type = args.split_type
     disease = args.disease
+    transform = args.transform
 
     temp_folder = Path('./temp_results').resolve()
     output_folder = Path('./dan_results').resolve()
@@ -718,21 +721,14 @@ if __name__ == '__main__':
     if split_type == 'loso':
         num_trials = 10
         if disease == 'crc':
-            # data, meta = utils.load_CRC_data()
-            # datasets = ['feng', 'hannigan', 'thomas', 'vogtmann', 'yu', 'zeller']
-            data, meta = utils.load_CRC_data()
-            datasets = ['FengQ_2015', 'GuptaA_2019', 'HanniganGD_2017', 'ThomasAM_2019_c', 'VogtmannE_2016',
-                        'WirbelJ_2018', 'YachidaS_2019', 'YuJ_2015', 'ZellerG_2014']
+            data, meta = utils.load_CRC_data(transform=transform)
         elif disease == 'ibd':
-            data, meta = utils.load_IBD_data()
-            datasets = ['HMP_2019_ibdmdb', 'IjazUZ_2017', 'NielsenHB_2014']
+            data, meta = utils.load_IBD_data(transform=transform)
         elif disease == 't2d':
-            data, meta = utils.load_T2D_data()
-            datasets = ['KarlssonFH_2013', 'QinJ_2012']
+            data, meta = utils.load_T2D_data(transform=transform)
 
+        datasets = meta['Dataset'].unique()
         for dset in datasets:
-            if dset != 'ThomasAM_2019_c':
-                continue
             res = []
             for trial in range(num_trials):
                 if os.path.exists(temp_folder):
@@ -773,7 +769,7 @@ if __name__ == '__main__':
                 })
             shutil.rmtree(temp_folder, ignore_errors=True)
 
-            torch.save(res, '{}/{}_{}_{}.pt'.format(output_folder, split_type, disease, dset))
+            torch.save(res, '{}/{}_{}_{}_{}.pt'.format(output_folder, split_type, disease, dset, transform))
 
     #####################################
     # TOSO
@@ -781,7 +777,6 @@ if __name__ == '__main__':
     elif split_type == 'toso':
         num_trials = 10
         if disease == 'crc':
-            # datasets = ['feng', 'hannigan', 'thomas', 'vogtmann', 'yu', 'zeller']
             datasets = ['FengQ_2015', 'GuptaA_2019', 'HanniganGD_2017', 'ThomasAM_2019_c',
                         'VogtmannE_2016', 'WirbelJ_2018', 'YachidaS_2019', 'YuJ_2015', 'ZellerG_2014']
         elif disease == 'ibd':
@@ -791,17 +786,14 @@ if __name__ == '__main__':
 
         for dset in datasets:
             for dset2 in datasets:
-                if dset2 != 'ThomasAM_2019_c':
-                    continue
                 if dset == dset2:
                     continue
                 if disease == 'crc':
-                    # data, meta = utils.load_CRC_data([dset, dset2])
-                    data, meta = utils.load_CRC_data([dset, dset2])
+                    data, meta = utils.load_CRC_data(studies_to_include=[dset, dset2], transform=transform)
                 elif disease == 'ibd':
-                    data, meta = utils.load_IBD_data([dset, dset2])
+                    data, meta = utils.load_IBD_data(studies_to_include=[dset, dset2], transform=transform)
                 elif disease == 't2d':
-                    data, meta = utils.load_T2D_data([dset, dset2])
+                    data, meta = utils.load_T2D_data(studies_to_include=[dset, dset2], transform=transform)
 
                 res = []
                 for trial in range(num_trials):
@@ -843,7 +835,8 @@ if __name__ == '__main__':
 
                     })
                 shutil.rmtree(temp_folder, ignore_errors=True)
-                torch.save(res, '{}/{}_{}_{}_train_{}_test.pt'.format(output_folder, split_type, disease, dset, dset2))
+                torch.save(res, '{}/{}_{}_{}_train_{}_test_{}.pt'.format(output_folder, split_type, disease, dset,
+                                                                         dset2, transform))
 
     #####################################
     # KFOLD
@@ -866,11 +859,11 @@ if __name__ == '__main__':
                 continue
             if disease == 'crc':
                 # data, meta = utils.load_CRC_data(studies=[dataset])
-                data, meta = utils.load_CRC_data(studies=[dataset])
+                data, meta = utils.load_CRC_data(studies_to_include=[dataset], transform=transform)
             elif disease == 'ibd':
-                data, meta = utils.load_IBD_data(studies=[dataset])
+                data, meta = utils.load_IBD_data(studies_to_include=[dataset], transform=transform)
             elif disease == 't2d':
-                data, meta = utils.load_T2D_data(studies=[dataset])
+                data, meta = utils.load_T2D_data(studies_to_include=[dataset], transform=transform)
 
             res = []
             for trial in range(num_trials):
@@ -914,4 +907,4 @@ if __name__ == '__main__':
                     })
                 shutil.rmtree(temp_folder, ignore_errors=True)
 
-            torch.save(res, '{}/{}_{}_{}.pt'.format(output_folder, split_type, disease, dataset))
+            torch.save(res, '{}/{}_{}_{}_{}.pt'.format(output_folder, split_type, disease, dataset, transform))

@@ -93,11 +93,11 @@ def get_metaDAN_results(disease, split_type, use_threshold=True):
                 filepath = os.path.join('dan_results', filename)
                 ray_res = torch.load(filepath, weights_only=False)
                 if disease == 'crc':
-                    data, meta = utils.load_CRC_data(studies=[ray_res[0]['test_dataset']])
+                    data, meta = utils.load_CRC_data(studies_to_include=[ray_res[0]['test_dataset']])
                 elif disease == 'ibd':
-                    data, meta = utils.load_IBD_data(studies=[ray_res[0]['test_dataset']])
+                    data, meta = utils.load_IBD_data(studies_to_include=[ray_res[0]['test_dataset']])
                 elif disease == 't2d':
-                    data, meta = utils.load_T2D_data(studies=[ray_res[0]['test_dataset']])
+                    data, meta = utils.load_T2D_data(studies_to_include=[ray_res[0]['test_dataset']])
                 for i in range(len(ray_res)):
                     if use_threshold:
                         train_set, test_set, val_set = mkmmd_raytune.load_data_for_training(
@@ -282,14 +282,14 @@ def get_metaDAN_results(disease, split_type, use_threshold=True):
                 ray_res = torch.load(filepath, weights_only=False)
                 if use_threshold:
                     if disease == 'crc':
-                        data, meta = utils.load_CRC_data(studies=[ray_res[0]['test_dataset'],
-                                                                  ray_res[0]['train_dataset']])
+                        data, meta = utils.load_CRC_data(studies_to_include=[ray_res[0]['test_dataset'],
+                                                                             ray_res[0]['train_dataset']])
                     elif disease == 'ibd':
-                        data, meta = utils.load_IBD_data(studies=[ray_res[0]['test_dataset'],
-                                                                  ray_res[0]['train_dataset']])
+                        data, meta = utils.load_IBD_data(studies_to_include=[ray_res[0]['test_dataset'],
+                                                                             ray_res[0]['train_dataset']])
                     elif disease == 't2d':
-                        data, meta = utils.load_T2D_data(studies=[ray_res[0]['test_dataset'],
-                                                                  ray_res[0]['train_dataset']])
+                        data, meta = utils.load_T2D_data(studies_to_include=[ray_res[0]['test_dataset'],
+                                                                             ray_res[0]['train_dataset']])
                 for i in range(len(ray_res)):
                     if use_threshold:
                         train_set, test_set, val_set = mkmmd_raytune.load_data_for_training(
@@ -779,6 +779,9 @@ def compute_mean_and_me(df,
 
     Returns:
         pd.DataFrame: A DataFrame containing the mean(ME) for each group and metric.
+        :param split_type:
+        :param confidence_level:
+        :param mean_only:
     """
     if split_type == 'toso':
         group_cols = ['Method', 'Training Dataset', 'Testing Dataset']
@@ -972,8 +975,8 @@ def plot_auroc_kfold(auc_dict, split_type, output_folder, alpha=0.2, n_points=10
     ...
 
 
-def plot_pca(data, meta, split_type, disease, test_dataset_name='', n_components=2, figsize=(8, 6), palette="tab10",
-             data_type='clr', pca_or_pcoa='pca', save_plot=True):
+def plot_pca(data, meta, disease, test_dataset_name='', n_components=2, figsize=(8, 6), palette="tab10",
+             data_type='raw', pca_or_pcoa='pca', save_plot=True):
     rename_dict = {
         0: 'Control',
         1: 'Case'
@@ -1054,22 +1057,26 @@ def plot_pca(data, meta, split_type, disease, test_dataset_name='', n_components
         plt.xlabel(f"PC1 ({pcoa_results.proportion_explained[0] * 100:.2f}% variance)")
         plt.ylabel(f"PC2 ({pcoa_results.proportion_explained[1] * 100:.2f}% variance)")
 
-    if data_type == 'clr':
+    if data_type == 'raw':
+        plt.title(f"{pca_or_pcoa.upper()} of raw count data")
+    elif data_type == 'ilr':
+        plt.title(f"{pca_or_pcoa.upper()} of ILR-transformed data")
+    elif data_type == 'clr':
         plt.title(f"{pca_or_pcoa.upper()} of CLR-transformed data")
-    elif data_type == 'relative_abundance':
-        plt.title(f"{pca_or_pcoa.upper()} of relative abundance data")
     else:
         plt.title(f"{pca_or_pcoa.upper()} of MetaDAN embedded data ({test_dataset_name})")
     plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', title="Legend")
     plt.grid(alpha=0.4)
     plt.tight_layout()
     if save_plot:
-        if data_type == 'clr':
-            plt.savefig(f'{output_folder}/{split_type}_{disease}_{pca_or_pcoa}_clr.png', dpi=300)
-        elif data_type == 'relative_abundance':
-            plt.savefig(f'{output_folder}/{split_type}_{disease}_{pca_or_pcoa}_relative_abundance.png', dpi=300)
+        if data_type == 'raw':
+            plt.savefig(f'{output_folder}/{disease}_{pca_or_pcoa}_raw.png', dpi=300)
+        elif data_type == 'ilr':
+            plt.savefig(f'{output_folder}/{disease}_{pca_or_pcoa}_ilr.png', dpi=300)
+        elif data_type == 'clr':
+            plt.savefig(f'{output_folder}/{disease}_{pca_or_pcoa}_clr.png', dpi=300)
         else:
-            plt.savefig(f'{output_folder}/{split_type}_{disease}_{pca_or_pcoa}_{test_dataset_name}.png', dpi=300)
+            plt.savefig(f'{output_folder}/{disease}_{pca_or_pcoa}_embedding_{test_dataset_name}.png', dpi=300)
 
     plt.show()
     plt.close()
@@ -1091,14 +1098,6 @@ if __name__ == '__main__':
     if not os.path.isdir(output_folder):
         os.mkdir(output_folder)
 
-    if split_type == 'toso':
-        results_df = pd.DataFrame(columns=["Method",
-                                           "Training Dataset", "Testing Dataset",
-                                           "Accuracy", "AUC", "F1", "MCC"])
-    else:
-        results_df = pd.DataFrame(columns=["Method",
-                                           "Dataset",
-                                           "Accuracy", "AUC", "F1", "MCC"])
     rename_dict = {
         'HanniganGD_2017': 'Hannigan',
         'FengQ_2015': 'Feng',
@@ -1118,47 +1117,71 @@ if __name__ == '__main__':
 
     auroc_dict = {}
     embedding_dict = {}
+
+    ##############################################################################################
+    ################### PCA #######################
+    ##############################################################################################
+    # for disease in ['crc', 'ibd', 't2d']:
+    #     if disease == 'crc':
+    #         data, meta = utils.load_CRC_data(rel_abun=False)
+    #     elif disease == 'ibd':
+    #         data, meta = utils.load_IBD_data(rel_abun=False)
+    #     elif disease == 't2d':
+    #         data, meta = utils.load_T2D_data(rel_abun=False)
+    #     meta = meta.replace({"Dataset": rename_dict})
+    #     plot_pca(data, meta, disease, data_type='raw', pca_or_pcoa='pca', figsize=(12, 8))  # raw PCA
+    #     plot_pca(data, meta, disease, data_type='raw', pca_or_pcoa='pcoa', figsize=(12, 8))  # raw PCoA
+    #
+    #     if disease == 'crc':
+    #         data, meta = utils.load_CRC_data(transform='ilr')
+    #     elif disease == 'ibd':
+    #         data, meta = utils.load_IBD_data(transform='ilr')
+    #     elif disease == 't2d':
+    #         data, meta = utils.load_T2D_data(transform='ilr')
+    #     meta = meta.replace({"Dataset": rename_dict})
+    #     plot_pca(data, meta, disease, data_type='ilr', pca_or_pcoa='pca', figsize=(12, 8))  # ilr PCA
+    #
+    #     if disease == 'crc':
+    #         data, meta = utils.load_CRC_data(transform='clr')
+    #     elif disease == 'ibd':
+    #         data, meta = utils.load_IBD_data(transform='clr')
+    #     elif disease == 't2d':
+    #         data, meta = utils.load_T2D_data(transform='clr')
+    #     meta = meta.replace({"Dataset": rename_dict})
+    #     plot_pca(data, meta, disease, data_type='clr', pca_or_pcoa='pca', figsize=(12, 8))  # clr PCA
+
+
+        # get_metaDAN_results(disease, 'loso')
+        # embedding_dict = {rename_dict.get(k, k): v for k, v in embedding_dict.items()}
+        # for test_dataset in list(embedding_dict.keys()):
+        #     plot_pca(embedding_dict[test_dataset]['embeddings'][-1], meta, disease,
+        #              test_dataset_name=test_dataset, data_type='embedding')
+
+    ##############################################################################################
+    ########### k-Fold and LOSO tables ############
+    ##############################################################################################
+
     # for disease in ['crc', 'ibd', 't2d']:
     #     for split_type in ['kfold', 'loso']:
+    #         results_df = pd.DataFrame(columns=["Method", "Dataset", "Accuracy", "AUC", "F1", "MCC"])
     #         get_SIAMCAT_results(disease, split_type)
     #         get_metAML_results(disease, split_type)
-    #         get_metaDAN_results(disease, split_type, use_threshold=True)
-    #         plot_auroc_kfold(auroc_dict, split_type, output_folder)
+    #         get_metaDAN_results(disease, split_type, use_threshold=False)
+    #         if split_type == 'kfold':
+    #             plot_auroc_kfold(auroc_dict, split_type, output_folder)
+    #         t = compute_mean_and_me(results_df, split_type, mean_only=False)
+    #         t.to_csv(f'{output_folder}/{split_type}_{disease}_results_table.csv')
 
+    ##############################################################################################
+    ############### TOSO heatmaps #################
+    ##############################################################################################
+    # for disease in ['crc', 'ibd', 't2d']:
+    #     results_df = pd.DataFrame(columns=["Method",
+    #                                        "Training Dataset", "Testing Dataset",
+    #                                        "Accuracy", "AUC", "F1", "MCC"])
+    #     get_metaDAN_results(disease, 'toso')
+    #     get_SIAMCAT_results(disease, 'toso')
+    #     get_metAML_results(disease, 'toso')
+    #     generate_heatmaps(results_df, 'toso', disease, output_folder)
 
-    if disease == 'crc':
-        data, meta = utils.load_CRC_data(clr=False)
-    elif disease == 'ibd':
-        data, meta = utils.load_IBD_data(clr=False)
-    elif disease == 't2d':
-        data, meta = utils.load_T2D_data(clr=False)
-    meta = meta.replace({"Dataset": rename_dict})
-    # plot_pca(data, meta, split_type, disease, data_type='relative_abundance')
-    plot_pca(data, meta, split_type, disease, data_type='relative_abundance', pca_or_pcoa='pcoa', figsize=(12, 8))
-
-    if disease == 'crc':
-        data, meta = utils.load_CRC_data()
-    elif disease == 'ibd':
-        data, meta = utils.load_IBD_data()
-    elif disease == 't2d':
-        data, meta = utils.load_T2D_data()
-    meta = meta.replace({"Dataset": rename_dict})
-    # plot_pca(data, meta, split_type, disease, data_type='clr')
-    plot_pca(data, meta, split_type, disease, data_type='clr', pca_or_pcoa='pcoa', figsize=(12, 8))
-
-    get_metaDAN_results(disease, split_type)
-    embedding_dict = {rename_dict.get(k, k): v for k, v in embedding_dict.items()}
-    for test_dataset in list(embedding_dict.keys()):
-        plot_pca(embedding_dict[test_dataset]['embeddings'][-1], meta, split_type, disease,
-                 test_dataset_name=test_dataset, data_type='embeddings')
-
-
-    # get_metaDAN_results(disease, split_type)
-    # get_SIAMCAT_results(disease, split_type)
-    # get_metAML_results(disease, split_type)
-    # t = compute_mean_and_me(results_df, split_type, mean_only=False)
-    # generate_heatmaps(results_df, split_type, disease, output_folder)
-
-    # plot_metrics_boxplots(results_df)
-    # plot_auroc_kfold(auroc_dict, split_type, output_folder)
     ...

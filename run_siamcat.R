@@ -277,8 +277,15 @@ for (d in datasets) {
     sc.obj <- filter.features(sc.obj,
                               filter.method = 'abundance',
                               cutoff = 0.001)
-    sc.obj <- normalize.features(sc.obj, norm.method = "log.unit",
-                                 norm.param = list(log.n0 = 1e-06, n.p = 2,norm.margin = 1))
+    #sc.obj <- normalize.features(sc.obj, norm.method = "log.unit",
+    #                            norm.param = list(log.n0 = 1e-06, n.p = 2,norm.margin = 1))
+    
+
+    sc.obj <- normalize.features(sc.obj, norm.method = 'log.std',
+                                       norm.param=list(log.n0=1e-06, sd.min.q=0.1),
+                                       feature.type = 'original')
+    
+    
     # Split data, train model, and make predictions
     sc.obj <- create.data.split(sc.obj, num.folds = 5, num.resample = 5)
     sc.obj <- train.model(sc.obj, method = "lasso")
