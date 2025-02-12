@@ -83,21 +83,27 @@ def save_results(split_type,
             })), ignore_index=True)
 
 
-def get_metaDAN_results(disease, split_type, use_threshold=True):
+def get_metaDAN_results(disease, split_type, transform, use_threshold=True):
     global auroc_dict
     global embedding_dict
     if split_type == 'kfold':
-        pattern = rf"^{split_type}_{disease}_.+\.pt$"
+        pattern = rf"^{split_type}_{disease}_.+{transform}\.pt$"
         for filename in os.listdir('dan_results'):
             if re.match(pattern, filename):
                 filepath = os.path.join('dan_results', filename)
                 ray_res = torch.load(filepath, weights_only=False)
                 if disease == 'crc':
-                    data, meta = utils.load_CRC_data(studies_to_include=[ray_res[0]['test_dataset']])
+                    data, meta = utils.load_CRC_data(studies_to_include=[ray_res[0]['test_dataset']],
+                                                     transform=transform,
+                                                     num_feat=150)
                 elif disease == 'ibd':
-                    data, meta = utils.load_IBD_data(studies_to_include=[ray_res[0]['test_dataset']])
+                    data, meta = utils.load_IBD_data(studies_to_include=[ray_res[0]['test_dataset']],
+                                                     transform=transform,
+                                                     num_feat=150)
                 elif disease == 't2d':
-                    data, meta = utils.load_T2D_data(studies_to_include=[ray_res[0]['test_dataset']])
+                    data, meta = utils.load_T2D_data(studies_to_include=[ray_res[0]['test_dataset']],
+                                                     transform=transform,
+                                                     num_feat=150)
                 for i in range(len(ray_res)):
                     if use_threshold:
                         train_set, test_set, val_set = mkmmd_raytune.load_data_for_training(
@@ -123,7 +129,8 @@ def get_metaDAN_results(disease, split_type, use_threshold=True):
                         test_labels = torch.stack([test_set[j][1] for j in range(len(test_set))]).numpy()
                         if ray_res[i]['test_dataset'] in auroc_dict:
                             if 'MetaDAN' in auroc_dict[ray_res[i]['test_dataset']]:
-                                auroc_dict[ray_res[i]['test_dataset']]['MetaDAN']['y_true'].append(test_labels.flatten())
+                                auroc_dict[ray_res[i]['test_dataset']]['MetaDAN']['y_true'].append(
+                                    test_labels.flatten())
                                 auroc_dict[ray_res[i]['test_dataset']]['MetaDAN']['y_score'].append(
                                     test_scores.detach().numpy().flatten())
                             else:
@@ -140,7 +147,7 @@ def get_metaDAN_results(disease, split_type, use_threshold=True):
 
                         save_results(
                             split_type,
-                            'MetaDAN',
+                            f'MetaDAN_{transform}',
                             ray_res[i]['test_dataset'],
                             None,
                             utils.metric_from_confusion_matrix(
@@ -161,7 +168,7 @@ def get_metaDAN_results(disease, split_type, use_threshold=True):
                         cm = ray_res[i]['test_confusion_matrix']
                         save_results(
                             split_type,
-                            'MetaDAN',
+                            f'MetaDAN_{transform}',
                             ray_res[i]['test_dataset'],
                             None,
                             utils.metric_from_confusion_matrix(cm, metric='acc'),
@@ -171,14 +178,14 @@ def get_metaDAN_results(disease, split_type, use_threshold=True):
                         )
 
     elif split_type == 'loso':
-        pattern = rf"^{split_type}_{disease}_.+\.pt$"
+        pattern = rf"^{split_type}_{disease}_.+{transform}\.pt$"
         if use_threshold:
             if disease == 'crc':
-                data, meta = utils.load_CRC_data()
+                data, meta1 = utils.load_CRC_data()
             elif disease == 'ibd':
-                data, meta = utils.load_IBD_data()
+                data, meta1 = utils.load_IBD_data()
             elif disease == 't2d':
-                data, meta = utils.load_T2D_data()
+                data, meta1 = utils.load_T2D_data()
 
         for filename in os.listdir('dan_results'):
             if re.match(pattern, filename):
@@ -186,6 +193,19 @@ def get_metaDAN_results(disease, split_type, use_threshold=True):
                 ray_res = torch.load(filepath, weights_only=False)
                 for i in range(len(ray_res)):
                     if use_threshold:
+                        if disease == 'crc':
+                            data, meta = utils.load_CRC_data(
+                                transform=transform, num_feat=150,
+                                train_studies=list(meta1.loc[meta1['Dataset'] != ray_res[i]['test_dataset']]['Dataset'].unique()))
+                        elif disease == 'ibd':
+                            data, meta = utils.load_IBD_data(
+                                transform=transform, num_feat=150,
+                                train_studies=list(meta1.loc[meta1['Dataset'] != ray_res[i]['test_dataset']]['Dataset'].unique()))
+                        elif disease == 't2d':
+                            data, meta = utils.load_T2D_data(
+                                transform=transform, num_feat=150,
+                                train_studies=list(meta1.loc[meta1['Dataset'] != ray_res[i]['test_dataset']]['Dataset'].unique()))
+
                         train_set, test_set, val_set = mkmmd_raytune.load_data_for_training(
                             data, meta, ray_res[i]['train_idx'], ray_res[i]['test_idx'], val_idx=ray_res[i]['val_idx'])
                         net = networks.DAN(
@@ -200,7 +220,8 @@ def get_metaDAN_results(disease, split_type, use_threshold=True):
                         net.load_state_dict(ray_res[i]["best_state_dict"])
                         net.eval()
                         # get all embeddings for later use
-                        X_train = torch.tensor(data.loc[ray_res[i]['train_idx']].values.astype(float), dtype=torch.float32)
+                        X_train = torch.tensor(data.loc[ray_res[i]['train_idx']].values.astype(float),
+                                               dtype=torch.float32)
                         s, mu = torch.std_mean(X_train, dim=0)
                         X = torch.tensor(data.values.astype(float), dtype=torch.float32)
                         X = (X - mu) / s
@@ -227,7 +248,8 @@ def get_metaDAN_results(disease, split_type, use_threshold=True):
                         test_labels = torch.stack([test_set[j][1] for j in range(len(test_set))]).numpy()
                         if ray_res[i]['test_dataset'] in auroc_dict:
                             if 'MetaDAN' in auroc_dict[ray_res[i]['test_dataset']]:
-                                auroc_dict[ray_res[i]['test_dataset']]['MetaDAN']['y_true'].append(test_labels.flatten())
+                                auroc_dict[ray_res[i]['test_dataset']]['MetaDAN']['y_true'].append(
+                                    test_labels.flatten())
                                 auroc_dict[ray_res[i]['test_dataset']]['MetaDAN']['y_score'].append(
                                     test_scores.detach().numpy().flatten())
                             else:
@@ -243,7 +265,7 @@ def get_metaDAN_results(disease, split_type, use_threshold=True):
                             }
                         save_results(
                             split_type,
-                            'MetaDAN',
+                            f'MetaDAN_{transform}',
                             ray_res[i]['test_dataset'],
                             None,
                             utils.metric_from_confusion_matrix(
@@ -265,7 +287,7 @@ def get_metaDAN_results(disease, split_type, use_threshold=True):
                         cm = ray_res[i]['test_confusion_matrix']
                         save_results(
                             split_type,
-                            'MetaDAN',
+                            f'MetaDAN_{transform}',
                             ray_res[i]['test_dataset'],
                             None,
                             utils.metric_from_confusion_matrix(cm, metric='acc'),
@@ -275,7 +297,7 @@ def get_metaDAN_results(disease, split_type, use_threshold=True):
                         )
                     ...
     elif split_type == 'toso':
-        pattern = rf"^{split_type}_{disease}_.+_train_.+_test\.pt$"
+        pattern = rf"^{split_type}_{disease}_.+_train_.+_test_{transform}\.pt$"
         for filename in os.listdir('dan_results'):
             if re.match(pattern, filename):
                 filepath = os.path.join('dan_results', filename)
@@ -283,13 +305,22 @@ def get_metaDAN_results(disease, split_type, use_threshold=True):
                 if use_threshold:
                     if disease == 'crc':
                         data, meta = utils.load_CRC_data(studies_to_include=[ray_res[0]['test_dataset'],
-                                                                             ray_res[0]['train_dataset']])
+                                                                             ray_res[0]['train_dataset']],
+                                                         transform=transform,
+                                                         num_feat=150,
+                                                         train_studies=[ray_res[0]['train_dataset']])
                     elif disease == 'ibd':
                         data, meta = utils.load_IBD_data(studies_to_include=[ray_res[0]['test_dataset'],
-                                                                             ray_res[0]['train_dataset']])
+                                                                             ray_res[0]['train_dataset']],
+                                                         transform=transform,
+                                                         num_feat=150,
+                                                         train_studies=[ray_res[0]['train_dataset']])
                     elif disease == 't2d':
                         data, meta = utils.load_T2D_data(studies_to_include=[ray_res[0]['test_dataset'],
-                                                                             ray_res[0]['train_dataset']])
+                                                                             ray_res[0]['train_dataset']],
+                                                         transform=transform,
+                                                         num_feat=150,
+                                                         train_studies=[ray_res[0]['train_dataset']])
                 for i in range(len(ray_res)):
                     if use_threshold:
                         train_set, test_set, val_set = mkmmd_raytune.load_data_for_training(
@@ -306,12 +337,9 @@ def get_metaDAN_results(disease, split_type, use_threshold=True):
                         net.load_state_dict(ray_res[i]["best_state_dict"])
                         net.eval()
                         #  get scores and labels of validation and determine threshold
-                        _, val_scores = net(torch.stack([train_set[j][0] for j in range(len(train_set))]))
+                        _, val_scores = net(torch.stack([val_set[j][0] for j in range(len(val_set))]))
                         val_scores = torch.sigmoid(val_scores)
-                        val_labels = torch.stack([train_set[j][1] for j in range(len(train_set))]).numpy()
-                        # _, val_scores = net(torch.stack([val_set[j][0] for j in range(len(val_set))]))
-                        # val_scores = torch.sigmoid(val_scores)
-                        # val_labels = torch.stack([val_set[j][1] for j in range(len(val_set))]).numpy()
+                        val_labels = torch.stack([val_set[j][1] for j in range(len(val_set))]).numpy()
                         #  get scores and labels of testing data and use threshold to determine cm
                         _, test_scores = net(torch.stack([test_set[j][0] for j in range(len(test_set))]))
                         test_scores = torch.sigmoid(test_scores)
@@ -319,8 +347,10 @@ def get_metaDAN_results(disease, split_type, use_threshold=True):
                         if ray_res[i]['train_dataset'] in auroc_dict:
                             if ray_res[i]['test_dataset'] in auroc_dict[ray_res[i]['train_dataset']]:
                                 if 'MetaDAN' in auroc_dict[ray_res[i]['train_dataset']][ray_res[i]['test_dataset']]:
-                                    auroc_dict[ray_res[i]['train_dataset']][ray_res[i]['test_dataset']]['MetaDAN']['y_true'].append(test_labels.flatten())
-                                    auroc_dict[ray_res[i]['train_dataset']][ray_res[i]['test_dataset']]['MetaDAN']['y_score'].append(test_scores.detach().numpy().flatten())
+                                    auroc_dict[ray_res[i]['train_dataset']][ray_res[i]['test_dataset']]['MetaDAN'][
+                                        'y_true'].append(test_labels.flatten())
+                                    auroc_dict[ray_res[i]['train_dataset']][ray_res[i]['test_dataset']]['MetaDAN'][
+                                        'y_score'].append(test_scores.detach().numpy().flatten())
                                 else:
                                     auroc_dict[ray_res[i]['train_dataset']][ray_res[i]['test_dataset']]['MetaDAN'] = {
                                         'y_true': [test_labels.flatten()],
@@ -341,7 +371,7 @@ def get_metaDAN_results(disease, split_type, use_threshold=True):
                             }
                         save_results(
                             split_type,
-                            'MetaDAN',
+                            f'MetaDAN_{transform}',
                             ray_res[i]['train_dataset'],
                             ray_res[i]['test_dataset'],
                             utils.metric_from_confusion_matrix(
@@ -362,7 +392,7 @@ def get_metaDAN_results(disease, split_type, use_threshold=True):
                         cm = ray_res[i]['test_confusion_matrix']
                         save_results(
                             split_type,
-                            'MetaDAN',
+                            f'MetaDAN_{transform}',
                             ray_res[i]['train_dataset'],
                             ray_res[i]['test_dataset'],
                             utils.metric_from_confusion_matrix(cm, metric='acc'),
@@ -835,10 +865,13 @@ def generate_heatmaps(df, split_type, disease, output_folder):
         'HMP_2019_ibdmdb': 'IBDMDB',
         'IjazUZ_2017': 'Ijaz',
         'KarlssonFH_2013': 'Karlsson',
-        'QinJ_2012': 'Qin'
+        'QinJ_2012': 'Qin',
+        'MetaDAN_clr': 'MetaDAN'
+
     }
     df = df.replace({"Training Dataset": rename_dict})
     df = df.replace({"Testing Dataset": rename_dict})
+    df = df.replace({"Method": rename_dict})
     for metric in metrics:
 
         for method in df['Method'].unique():
@@ -975,7 +1008,7 @@ def plot_auroc_kfold(auc_dict, split_type, output_folder, alpha=0.2, n_points=10
     ...
 
 
-def plot_pca(data, meta, disease, test_dataset_name='', n_components=2, figsize=(8, 6), palette="tab10",
+def plot_pca(data, meta, disease, test_dataset_name='', n_components=2, distance_metric='braycurtis', figsize=(8, 6), palette="tab10",
              data_type='raw', pca_or_pcoa='pca', save_plot=True):
     rename_dict = {
         0: 'Control',
@@ -1001,7 +1034,7 @@ def plot_pca(data, meta, disease, test_dataset_name='', n_components=2, figsize=
             eigvals, eigvecs = np.linalg.eigh(cov)
 
             angle = np.degrees(np.arctan2(*eigvecs[:, 0][::-1]))
-            width, height = (num_std*2) * np.sqrt(eigvals)  # 1 standard deviation
+            width, height = (num_std * 2) * np.sqrt(eigvals)  # 1 standard deviation
 
             # Use the same color as in the scatter plot
             color = palette[dataset]
@@ -1021,7 +1054,7 @@ def plot_pca(data, meta, disease, test_dataset_name='', n_components=2, figsize=
         pca_df = pd.DataFrame(pca_results, columns=[f"PC{i + 1}" for i in range(n_components)])
 
     else:
-        distance_matrix = squareform(pdist(data, metric="braycurtis"))  # Change metric if needed
+        distance_matrix = squareform(pdist(data, metric=distance_metric))  # Change metric if needed
         pcoa_results = pcoa(distance_matrix)
         pca_df = pd.DataFrame(pcoa_results.samples.iloc[:, :n_components],
                               columns=[f"PC{i + 1}" for i in range(n_components)])
@@ -1047,7 +1080,7 @@ def plot_pca(data, meta, disease, test_dataset_name='', n_components=2, figsize=
         x="PC1", y="PC2",
         hue='Dataset', style='Group',
         markers=marker_dict, palette=palette,
-        data=pca_df, edgecolor="black", alpha=0.6
+        data=pca_df, edgecolor="black", alpha=0.8
     )
     add_ellipses(ax, pca_df, dataset_col, palette, num_std=1)
     if pca_or_pcoa == 'pca':
@@ -1078,21 +1111,21 @@ def plot_pca(data, meta, disease, test_dataset_name='', n_components=2, figsize=
         else:
             plt.savefig(f'{output_folder}/{disease}_{pca_or_pcoa}_embedding_{test_dataset_name}.png', dpi=300)
 
-    plt.show()
+    # plt.show()
     plt.close()
     ...
-
-
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='model comparisons')
     parser.add_argument('--split_type', type=str, default='loso', help='kfold/loso/toso')
     parser.add_argument('--disease', type=str, default='crc', help='crc/ibd/t2d')
+    parser.add_argument('--transform', type=str, default='crc', help='clr/ilr')
 
     args = parser.parse_args()
     split_type = args.split_type
     disease = args.disease
+    transform = args.transform
 
     output_folder = "./comparison_figures"
     if not os.path.isdir(output_folder):
@@ -1115,13 +1148,14 @@ if __name__ == '__main__':
         'QinJ_2012': 'Qin'
     }
 
-    auroc_dict = {}
-    embedding_dict = {}
 
     ##############################################################################################
     ################### PCA #######################
     ##############################################################################################
     # for disease in ['crc', 'ibd', 't2d']:
+    #     auroc_dict = {}
+    #     embedding_dict = {}
+    #     results_df = pd.DataFrame(columns=["Method", "Dataset", "Accuracy", "AUC", "F1", "MCC"])
     #     if disease == 'crc':
     #         data, meta = utils.load_CRC_data(rel_abun=False)
     #     elif disease == 'ibd':
@@ -1129,17 +1163,8 @@ if __name__ == '__main__':
     #     elif disease == 't2d':
     #         data, meta = utils.load_T2D_data(rel_abun=False)
     #     meta = meta.replace({"Dataset": rename_dict})
-    #     plot_pca(data, meta, disease, data_type='raw', pca_or_pcoa='pca', figsize=(12, 8))  # raw PCA
-    #     plot_pca(data, meta, disease, data_type='raw', pca_or_pcoa='pcoa', figsize=(12, 8))  # raw PCoA
-    #
-    #     if disease == 'crc':
-    #         data, meta = utils.load_CRC_data(transform='ilr')
-    #     elif disease == 'ibd':
-    #         data, meta = utils.load_IBD_data(transform='ilr')
-    #     elif disease == 't2d':
-    #         data, meta = utils.load_T2D_data(transform='ilr')
-    #     meta = meta.replace({"Dataset": rename_dict})
-    #     plot_pca(data, meta, disease, data_type='ilr', pca_or_pcoa='pca', figsize=(12, 8))  # ilr PCA
+    #     plot_pca(data, meta, disease, data_type='raw', pca_or_pcoa='pca', figsize=(10, 8))  # raw PCA
+    #     plot_pca(data, meta, disease, data_type='raw', pca_or_pcoa='pcoa', figsize=(10, 8))  # raw PCA
     #
     #     if disease == 'crc':
     #         data, meta = utils.load_CRC_data(transform='clr')
@@ -1148,14 +1173,13 @@ if __name__ == '__main__':
     #     elif disease == 't2d':
     #         data, meta = utils.load_T2D_data(transform='clr')
     #     meta = meta.replace({"Dataset": rename_dict})
-    #     plot_pca(data, meta, disease, data_type='clr', pca_or_pcoa='pca', figsize=(12, 8))  # clr PCA
-
-
-        # get_metaDAN_results(disease, 'loso')
-        # embedding_dict = {rename_dict.get(k, k): v for k, v in embedding_dict.items()}
-        # for test_dataset in list(embedding_dict.keys()):
-        #     plot_pca(embedding_dict[test_dataset]['embeddings'][-1], meta, disease,
-        #              test_dataset_name=test_dataset, data_type='embedding')
+    #     plot_pca(data, meta, disease, data_type='clr', pca_or_pcoa='pca', figsize=(10, 8))  # clr PCA
+    #
+    #     get_metaDAN_results(disease, 'loso', transform='clr')
+    #     embedding_dict = {rename_dict.get(k, k): v for k, v in embedding_dict.items()}
+    #     for test_dataset in list(embedding_dict.keys()):
+    #         plot_pca(embedding_dict[test_dataset]['embeddings'][-1], meta, disease,
+    #                  test_dataset_name=test_dataset, data_type='embedding')
 
     ##############################################################################################
     ########### k-Fold and LOSO tables ############
@@ -1163,25 +1187,30 @@ if __name__ == '__main__':
 
     # for disease in ['crc', 'ibd', 't2d']:
     #     for split_type in ['kfold', 'loso']:
+    #         auroc_dict = {}
+    #         embedding_dict = {}
     #         results_df = pd.DataFrame(columns=["Method", "Dataset", "Accuracy", "AUC", "F1", "MCC"])
+    #         for transform in ['ilr', 'clr']:
+    #             get_metaDAN_results(disease, split_type, transform, use_threshold=True)
     #         get_SIAMCAT_results(disease, split_type)
     #         get_metAML_results(disease, split_type)
-    #         get_metaDAN_results(disease, split_type, use_threshold=False)
-    #         if split_type == 'kfold':
-    #             plot_auroc_kfold(auroc_dict, split_type, output_folder)
+    #         # if split_type == 'kfold':
+    #         #     plot_auroc_kfold(auroc_dict, split_type, output_folder)
     #         t = compute_mean_and_me(results_df, split_type, mean_only=False)
     #         t.to_csv(f'{output_folder}/{split_type}_{disease}_results_table.csv')
 
     ##############################################################################################
     ############### TOSO heatmaps #################
     ##############################################################################################
-    # for disease in ['crc', 'ibd', 't2d']:
-    #     results_df = pd.DataFrame(columns=["Method",
-    #                                        "Training Dataset", "Testing Dataset",
-    #                                        "Accuracy", "AUC", "F1", "MCC"])
-    #     get_metaDAN_results(disease, 'toso')
-    #     get_SIAMCAT_results(disease, 'toso')
-    #     get_metAML_results(disease, 'toso')
-    #     generate_heatmaps(results_df, 'toso', disease, output_folder)
+    for disease in ['crc', 'ibd', 't2d']:
+        results_df = pd.DataFrame(columns=["Method",
+                                           "Training Dataset", "Testing Dataset",
+                                           "Accuracy", "AUC", "F1", "MCC"])
+        auroc_dict = {}
+        embedding_dict = {}
+        get_metaDAN_results(disease, 'toso', transform='clr')
+        get_SIAMCAT_results(disease, 'toso')
+        get_metAML_results(disease, 'toso')
+        generate_heatmaps(results_df, 'toso', disease, output_folder)
 
     ...

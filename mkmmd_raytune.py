@@ -559,7 +559,7 @@ def run_raytune(train_data, test_data, val_data,
         hyperparams = {
             'batch_size': tune.choice([2 ** i for i in range(3, 5)]),
             'target_lambda': tune.choice([0.5, 1, 2]),
-            'learning_rate': tune.loguniform(1e-4, 1e-1),
+            'learning_rate': tune.loguniform(1e-3, 1e-2),
             "weight_decay": tune.choice([0.01, 0.05, 0.1]),
             'num_kernels': tune.choice([1, 2, 3]),
             'dropout_rate': tune.choice([0.1, 0.3]),
@@ -574,7 +574,7 @@ def run_raytune(train_data, test_data, val_data,
             'batch_size': tune.choice([2 ** i for i in range(4, 6)]),
             'source_lambda': tune.choice([1, 2.5, 3]),
             'target_lambda': tune.choice([1, 2.5, 3]),
-            'learning_rate': tune.loguniform(1e-3, 1e-1),
+            'learning_rate': tune.loguniform(1e-3, 1e-2),
             "weight_decay": tune.choice([0.01, 0.05, 0.1]),
             'num_kernels': tune.choice([3, 4, 5]),
             'dropout_rate': tune.choice([0.1, 0.3]),
@@ -588,7 +588,7 @@ def run_raytune(train_data, test_data, val_data,
         hyperparams = {
             'batch_size': tune.choice([2 ** i for i in range(3, 5)]),
             'target_lambda': tune.choice([0.5, 1, 2]),
-            'learning_rate': tune.loguniform(1e-4, 1e-1),
+            'learning_rate': tune.loguniform(1e-3, 1e-2),
             "weight_decay": tune.choice([0.01, 0.05, 0.1]),
             'num_kernels': tune.choice([3, 4, 5]),
             'dropout_rate': tune.choice([0.1, 0.3]),
@@ -699,7 +699,7 @@ def run_raytune(train_data, test_data, val_data,
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='mkmmd model hyperparameter tuning')
-    parser.add_argument('--split_type', type=str, default='loso', help='kfold/loso/toso')
+    parser.add_argument('--split_type', type=str, default='kfold', help='kfold/loso/toso')
     parser.add_argument('--disease', type=str, default='crc', help='crc/ibd/t2d')
     parser.add_argument('--transform', type=str, default='relative_abundance',
                         help='relative_abundance/clr/ilr')
@@ -721,14 +721,27 @@ if __name__ == '__main__':
     if split_type == 'loso':
         num_trials = 10
         if disease == 'crc':
-            data, meta = utils.load_CRC_data(transform=transform)
+            data, meta1 = utils.load_CRC_data(transform=transform)
         elif disease == 'ibd':
-            data, meta = utils.load_IBD_data(transform=transform)
+            data, meta1 = utils.load_IBD_data(transform=transform)
         elif disease == 't2d':
-            data, meta = utils.load_T2D_data(transform=transform)
+            data, meta1 = utils.load_T2D_data(transform=transform)
 
-        datasets = meta['Dataset'].unique()
+        datasets = meta1['Dataset'].unique()
         for dset in datasets:
+            if disease == 'crc':
+                data, meta = utils.load_CRC_data(
+                    transform=transform, num_feat=150,
+                    train_studies=list(meta1.loc[meta1['Dataset'] != dset]['Dataset'].unique()))
+            elif disease == 'ibd':
+                data, meta = utils.load_IBD_data(
+                    transform=transform, num_feat=150,
+                    train_studies=list(meta1.loc[meta1['Dataset'] != dset]['Dataset'].unique()))
+            elif disease == 't2d':
+                data, meta = utils.load_T2D_data(
+                    transform=transform, num_feat=150,
+                    train_studies=list(meta1.loc[meta1['Dataset'] != dset]['Dataset'].unique()))
+
             res = []
             for trial in range(num_trials):
                 if os.path.exists(temp_folder):
@@ -789,11 +802,14 @@ if __name__ == '__main__':
                 if dset == dset2:
                     continue
                 if disease == 'crc':
-                    data, meta = utils.load_CRC_data(studies_to_include=[dset, dset2], transform=transform)
+                    data, meta = utils.load_CRC_data(studies_to_include=[dset, dset2], transform=transform,
+                                                     num_feat=150, train_studies=[dset])
                 elif disease == 'ibd':
-                    data, meta = utils.load_IBD_data(studies_to_include=[dset, dset2], transform=transform)
+                    data, meta = utils.load_IBD_data(studies_to_include=[dset, dset2], transform=transform,
+                                                     num_feat=150, train_studies=[dset])
                 elif disease == 't2d':
-                    data, meta = utils.load_T2D_data(studies_to_include=[dset, dset2], transform=transform)
+                    data, meta = utils.load_T2D_data(studies_to_include=[dset, dset2], transform=transform,
+                                                     num_feat=150, train_studies=[dset])
 
                 res = []
                 for trial in range(num_trials):
@@ -846,7 +862,6 @@ if __name__ == '__main__':
         num_folds = 5
 
         if disease == 'crc':
-            # datasets = ['feng', 'hannigan', 'thomas', 'vogtmann', 'yu', 'zeller']
             datasets = ['FengQ_2015', 'GuptaA_2019', 'HanniganGD_2017', 'ThomasAM_2019_c', 'VogtmannE_2016',
                         'WirbelJ_2018', 'YachidaS_2019', 'YuJ_2015', 'ZellerG_2014']
         elif disease == 'ibd':
@@ -855,15 +870,15 @@ if __name__ == '__main__':
             datasets = ['KarlssonFH_2013', 'QinJ_2012']
 
         for dataset in datasets:
-            if dataset != 'ThomasAM_2019_c':
-                continue
             if disease == 'crc':
-                # data, meta = utils.load_CRC_data(studies=[dataset])
-                data, meta = utils.load_CRC_data(studies_to_include=[dataset], transform=transform)
+                data, meta = utils.load_CRC_data(studies_to_include=[dataset], transform=transform,
+                                                 num_feat=150)
             elif disease == 'ibd':
-                data, meta = utils.load_IBD_data(studies_to_include=[dataset], transform=transform)
+                data, meta = utils.load_IBD_data(studies_to_include=[dataset], transform=transform,
+                                                 num_feat=150)
             elif disease == 't2d':
-                data, meta = utils.load_T2D_data(studies_to_include=[dataset], transform=transform)
+                data, meta = utils.load_T2D_data(studies_to_include=[dataset], transform=transform,
+                                                 num_feat=150)
 
             res = []
             for trial in range(num_trials):
